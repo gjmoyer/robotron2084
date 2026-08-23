@@ -12,7 +12,7 @@
 
   const HS_KEY = "robotron2084_hs";
   const HS_KEY_OLD = "robotron2084_wave1_hs";
-  const MAX_WAVE = 3;
+  const MAX_WAVE = 5;
 
   const WAVES = [
     null,
@@ -85,6 +85,55 @@
       sparkMul: 0.58,
       subtitle: "SPHEROID STORM",
     },
+    {
+      grunts: 34,
+      electrodes: 25,
+      mommy: 2,
+      daddy: 2,
+      mikey: 2,
+      hulks: 7,
+      spheroids: 4,
+      electrodeStyle: "x",
+      electrodeHue: 28,
+      gruntMul: 1.48,
+      humans: 6,
+      hatchFirst: 1.7,
+      hatchNext: 0.9,
+      quotaMin: 4,
+      quotaMax: 6,
+      fireMin: 0.45,
+      fireMax: 0.78,
+      enforcerCap: 6,
+      enforcerMul: 0.9,
+      sparkMul: 0.6,
+      subtitle: "GRUNT SWARM",
+    },
+    {
+      grunts: 20,
+      electrodes: 20,
+      mommy: 15,
+      daddy: 0,
+      mikey: 1,
+      hulks: 0,
+      spheroids: 1,
+      brains: 15,
+      electrodeStyle: "plus",
+      electrodeHue: 280,
+      gruntMul: 1.35,
+      humans: 16,
+      hatchFirst: 2.0,
+      hatchNext: 1.15,
+      quotaMin: 3,
+      quotaMax: 5,
+      fireMin: 0.55,
+      fireMax: 0.95,
+      enforcerCap: 4,
+      enforcerMul: 0.8,
+      sparkMul: 0.52,
+      brainMul: 0.72,
+      missileMul: 0.4,
+      subtitle: "BRAIN WAVE — SAVE THE MOMMIES",
+    },
   ];
 
   const SPRITE_URLS = {
@@ -116,6 +165,12 @@
     mikey_s_w1: "assets/sprites/mikey_s_w1.png",
     mikey_e: "assets/sprites/mikey_e.png",
     mikey_w: "assets/sprites/mikey_w.png",
+    brain_s: "assets/sprites/brain_s.png",
+    brain_s_w0: "assets/sprites/brain_s_w0.png",
+    brain_s_w1: "assets/sprites/brain_s_w1.png",
+    prog_s: "assets/sprites/prog_s.png",
+    prog_s_w0: "assets/sprites/prog_s_w0.png",
+    prog_s_w1: "assets/sprites/prog_s_w1.png",
     title: "assets/title.jpg",
     floor: "assets/floor.jpg",
   };
@@ -182,6 +237,9 @@
       this.spheroids = [];
       this.enforcers = [];
       this.sparks = [];
+      this.brains = [];
+      this.progs = [];
+      this.missiles = [];
       this.electrodes = [];
       this.bullets = [];
       this.fireCd = 0;
@@ -244,7 +302,7 @@
 
     hostilesLeft() {
       const n = (arr) => arr.filter((e) => e.alive).length;
-      return n(this.grunts) + n(this.spheroids) + n(this.enforcers);
+      return n(this.grunts) + n(this.spheroids) + n(this.enforcers) + n(this.brains);
     }
 
     setState(s) {
@@ -263,6 +321,9 @@
       this.spheroids = [];
       this.enforcers = [];
       this.sparks = [];
+      this.brains = [];
+      this.progs = [];
+      this.missiles = [];
       this.electrodes = [];
       this.bullets = [];
       this.fireCd = 0;
@@ -332,6 +393,24 @@
         });
       }
 
+      for (let i = 0; i < (spec.brains || 0); i++) {
+        const [bx, by] = place(m * 0.055);
+        this.brains.push({
+          x: bx,
+          y: by,
+          vx: 0,
+          vy: 0,
+          r: m * 0.028,
+          face: "s",
+          anim: Math.random() * 4,
+          think: rand(0.3, 0.9),
+          fire: rand(2.2, 4.4),
+          converting: null,
+          spawn: 0,
+          alive: true,
+        });
+      }
+
       for (let i = 0; i < spec.spheroids; i++) {
         const [sx, sy] = place(m * 0.06);
         const a = rand(0.3, Math.PI * 2);
@@ -380,6 +459,9 @@
         anim: Math.random() * 3,
         think: rand(0.35, 1.1),
         spawn: 0,
+        converting: false,
+        convertT: 0,
+        claimed: false,
         alive: true,
       };
     }
@@ -491,6 +573,8 @@
       for (const h of this.hulks) h.spawn = Math.min(1, h.spawn + dt * 1.1);
       for (const s of this.spheroids) s.spawn = Math.min(1, s.spawn + dt * 1.4);
       for (const e of this.enforcers) e.spawn = Math.min(1, e.spawn + dt * 2.2);
+      for (const b of this.brains) b.spawn = Math.min(1, b.spawn + dt * 1.15);
+      for (const p of this.progs) p.spawn = Math.min(1, p.spawn + dt * 2);
     }
 
     updateTrans(dt) {
@@ -546,6 +630,7 @@
       FX.burst(cx, cy, "#ff2bd6", 18, 280, 2.8, 0.5);
       this.bullets = [];
       this.sparks = [];
+      this.missiles = [];
       this.transBeat = 0;
       this.setState(STATE.TRANS);
     }
@@ -559,6 +644,9 @@
       this.updateHulks(dt);
       this.updateSpheroids(dt);
       this.updateEnforcers(dt);
+      this.updateBrains(dt);
+      this.updateProgs(dt);
+      this.updateMissiles(dt);
       this.updateBullets(dt);
       this.updateSparks(dt);
       this.collide();
@@ -585,6 +673,9 @@
       this.updateHulks(dt * 0.2);
       this.updateSpheroids(dt * 0.2);
       this.updateEnforcers(dt * 0.15);
+      this.updateBrains(dt * 0.2);
+      this.updateProgs(dt * 0.2);
+      this.updateMissiles(dt);
       this.updateSparks(dt);
       if (this.stateTime > 1.55) {
         if (this.lives > 0) {
@@ -672,6 +763,11 @@
       const speed = this.minDim * 0.13;
       for (const h of this.humans) {
         if (!h.alive) continue;
+        if (h.converting) {
+          h.convertT -= dt;
+          h.anim += dt * 14;
+          continue;
+        }
         h.think -= dt;
         if (h.think <= 0) {
           const a = Math.random() * Math.PI * 2;
@@ -939,6 +1035,145 @@
       }
     }
 
+    updateBrains(dt) {
+      if (this.state !== STATE.PLAY) return;
+      const spec = this.waveSpec();
+      const speed = this.minDim * 0.068 * (spec.brainMul || 1);
+      const m = this.minDim;
+      for (const b of this.brains) {
+        if (!b.alive) continue;
+        if (b.converting) {
+          const h = b.converting;
+          if (!h.alive) {
+            b.converting = null;
+            continue;
+          }
+          if (h.convertT <= 0) {
+            this.finishConvert(b, h);
+          }
+          continue;
+        }
+        let tx = null;
+        let ty = null;
+        let best = Infinity;
+        for (const h of this.humans) {
+          if (!h.alive || h.converting || h.claimed) continue;
+          const d = Math.hypot(h.x - b.x, h.y - b.y);
+          if (d < best) {
+            best = d;
+            tx = h.x;
+            ty = h.y;
+          }
+        }
+        if (tx == null && this.player && this.player.alive) {
+          tx = this.player.x;
+          ty = this.player.y;
+        }
+        if (tx != null) {
+          const [nx, ny] = norm(tx - b.x, ty - b.y);
+          b.vx = nx;
+          b.vy = ny;
+          b.x += nx * speed * dt;
+          b.y += ny * speed * dt;
+          this.clampEntity(b);
+          b.face = facingFrom(nx, ny);
+        }
+        b.anim += dt * 5;
+        b.fire -= dt;
+        if (b.fire <= 0 && this.missiles.length < 6 && this.player && this.player.alive) {
+          b.fire = rand(2.8, 4.6);
+          const [nx, ny] = norm(this.player.x - b.x, this.player.y - b.y);
+          const spd = m * (spec.missileMul || 0.4);
+          this.missiles.push({
+            x: b.x,
+            y: b.y - m * 0.04,
+            vx: nx * spd,
+            vy: ny * spd,
+            r: m * 0.014,
+            life: 4.2,
+            wobble: Math.random() * 6,
+          });
+          AudioFX.brainFire(((b.x - this.arena.x) / this.arena.w) * 2 - 1);
+        }
+        for (const h of this.humans) {
+          if (!h.alive || h.converting || h.claimed) continue;
+          if (Math.hypot(h.x - b.x, h.y - b.y) < h.r + b.r + 6) {
+            this.startConvert(b, h);
+            break;
+          }
+        }
+      }
+    }
+
+    startConvert(brain, human) {
+      human.converting = true;
+      human.claimed = true;
+      human.convertT = 1.65;
+      human.vx = 0;
+      human.vy = 0;
+      brain.converting = human;
+      AudioFX.convertStart();
+      FX.ring(human.x, human.y, "#c77bff", 0.4);
+    }
+
+    finishConvert(brain, human) {
+      human.alive = false;
+      brain.converting = null;
+      this.humanChain = 0;
+      this.progs.push({
+        x: human.x,
+        y: human.y,
+        r: human.kind === "mikey" ? this.minDim * 0.016 : this.minDim * 0.02,
+        face: "s",
+        anim: 0,
+        spawn: 0.35,
+        small: human.kind === "mikey",
+        alive: true,
+      });
+      AudioFX.convertDone();
+      FX.burst(human.x, human.y, "#c77bff", 18, 220, 2.8, 0.35);
+      FX.ring(human.x, human.y, "#fff", 0.25);
+    }
+
+    updateProgs(dt) {
+      const p = this.player;
+      const speed = this.minDim * 0.15;
+      for (const g of this.progs) {
+        if (!g.alive) continue;
+        if (p && p.alive) {
+          const [nx, ny] = norm(p.x - g.x, p.y - g.y);
+          g.x += nx * speed * dt;
+          g.y += ny * speed * dt;
+          this.clampEntity(g);
+          g.face = facingFrom(nx, ny);
+        }
+        g.anim += dt * 7;
+      }
+    }
+
+    updateMissiles(dt) {
+      const p = this.player;
+      const turn = 3.4;
+      for (let i = this.missiles.length - 1; i >= 0; i--) {
+        const m = this.missiles[i];
+        if (p && p.alive) {
+          const [tx, ty] = norm(p.x - m.x, p.y - m.y);
+          const [cx, cy] = norm(m.vx, m.vy);
+          const nx = cx + tx * turn * dt;
+          const ny = cy + ty * turn * dt;
+          const spd = Math.hypot(m.vx, m.vy) || this.minDim * 0.4;
+          const [ux, uy] = norm(nx, ny);
+          m.vx = ux * spd;
+          m.vy = uy * spd;
+        }
+        m.x += m.vx * dt;
+        m.y += m.vy * dt;
+        m.life -= dt;
+        m.wobble += dt * 10;
+        if (m.life <= 0) this.missiles.splice(i, 1);
+      }
+    }
+
     collide() {
       const p = this.player;
       const panOf = (e) => ((e.x - this.arena.x) / this.arena.w) * 2 - 1;
@@ -1024,6 +1259,41 @@
             }
           }
         }
+        if (!hit) {
+          for (const br of this.brains) {
+            if (!br.alive) continue;
+            if (Math.hypot(b.x - br.x, b.y - (br.y - br.r * 0.5)) < br.r + b.r) {
+              this.killBrain(br);
+              hit = true;
+              break;
+            }
+          }
+        }
+        if (!hit) {
+          for (const g of this.progs) {
+            if (!g.alive) continue;
+            if (Math.hypot(b.x - g.x, b.y - (g.y - g.r * 0.5)) < g.r + b.r) {
+              g.alive = false;
+              hit = true;
+              this.addScore(100, g.x, g.y, "100");
+              AudioFX.gruntDie(panOf(g));
+              FX.burst(g.x, g.y, "#c77bff", 16, 220, 2.6, 0.3);
+              break;
+            }
+          }
+        }
+        if (!hit) {
+          for (let mi = this.missiles.length - 1; mi >= 0; mi--) {
+            const ms = this.missiles[mi];
+            if (Math.hypot(b.x - ms.x, b.y - ms.y) < ms.r + b.r + 3) {
+              this.missiles.splice(mi, 1);
+              hit = true;
+              this.addScore(25, ms.x, ms.y, "25");
+              FX.burst(ms.x, ms.y, "#a070ff", 10, 180, 2.2, 0.22);
+              break;
+            }
+          }
+        }
         if (hit) this.bullets.splice(i, 1);
       }
 
@@ -1061,6 +1331,9 @@
         }
         if (dead) {
           h.alive = false;
+          for (const br of this.brains) {
+            if (br.converting === h) this.cancelConvert(br);
+          }
           AudioFX.humanDie(((h.x - this.arena.x) / this.arena.w) * 2 - 1);
           const col = h.kind === "mommy" ? "#ff6ad6" : h.kind === "mikey" ? "#ffe56a" : "#6aa8ff";
           FX.burst(h.x, h.y, col, 16, 180, 2.6, 0.35);
@@ -1089,6 +1362,26 @@
           }
         }
       }
+      for (const br of this.brains) {
+        if (!br.alive) continue;
+        for (const e of this.electrodes) {
+          if (!e.alive) continue;
+          if (Math.hypot(br.x - e.x, br.y - e.y) < br.r + e.r * 0.8) {
+            this.killBrain(br);
+            break;
+          }
+        }
+      }
+      for (const g of this.progs) {
+        if (!g.alive) continue;
+        for (const e of this.electrodes) {
+          if (!e.alive) continue;
+          if (Math.hypot(g.x - e.x, g.y - e.y) < g.r + e.r * 0.8) {
+            g.alive = false;
+            FX.burst(g.x, g.y, "#c77bff", 12, 180, 2.4, 0.25);
+          }
+        }
+      }
 
       if (!p || !p.alive) return;
 
@@ -1096,6 +1389,9 @@
       for (const h of this.humans) {
         if (!h.alive) continue;
         if (Math.hypot(p.x - h.x, p.y - h.y) < p.r + h.r + 6) {
+          for (const br of this.brains) {
+            if (br.converting === h) this.cancelConvert(br);
+          }
           h.alive = false;
           const pts = [1000, 2000, 3000, 4000, 5000][this.humanChain % 5];
           this.humanChain += 1;
@@ -1155,6 +1451,48 @@
           return;
         }
       }
+      for (const br of this.brains) {
+        if (!br.alive) continue;
+        if (Math.hypot(p.x - br.x, bodyY - (br.y - br.r * 0.4)) < p.r + br.r * 0.75) {
+          this.killPlayer();
+          return;
+        }
+      }
+      for (const g of this.progs) {
+        if (!g.alive) continue;
+        if (Math.hypot(p.x - g.x, bodyY - (g.y - g.r * 0.4)) < p.r + g.r) {
+          this.killPlayer();
+          return;
+        }
+      }
+      for (const ms of this.missiles) {
+        if (Math.hypot(p.x - ms.x, bodyY - ms.y) < p.r + ms.r) {
+          this.killPlayer();
+          return;
+        }
+      }
+    }
+
+    cancelConvert(brain) {
+      const h = brain.converting;
+      if (h && h.alive) {
+        h.converting = false;
+        h.claimed = false;
+        h.convertT = 0;
+      }
+      brain.converting = null;
+    }
+
+    killBrain(br) {
+      if (!br.alive) return;
+      br.alive = false;
+      this.cancelConvert(br);
+      this.addScore(500, br.x, br.y, "500");
+      AudioFX.brainDie(((br.x - this.arena.x) / this.arena.w) * 2 - 1);
+      FX.burst(br.x, br.y - 12, "#c77bff", 28, 300, 3.4, 0.42);
+      FX.burst(br.x, br.y - 12, "#ffe56a", 10, 180, 2.2, 0.28);
+      FX.ring(br.x, br.y, "#ff80ff", 0.32);
+      FX.addShake(4);
     }
 
     killGrunt(g, scored = true) {
@@ -1177,6 +1515,7 @@
       this.humanChain = 0;
       this.bullets = [];
       this.sparks = [];
+      this.missiles = [];
       for (const e of this.enforcers) e.alive = false;
       AudioFX.playerDie();
       Input.rumble(220, 0.6, 1);
@@ -1205,6 +1544,14 @@
       if (kind === "hulk") {
         if (walking) return frame % 2 === 0 ? s.hulk_s_w0 : s.hulk_s_w1;
         return s.hulk_s;
+      }
+      if (kind === "brain") {
+        if (walking) return frame % 2 === 0 ? s.brain_s_w0 : s.brain_s_w1;
+        return s.brain_s;
+      }
+      if (kind === "prog") {
+        if (walking) return frame % 2 === 0 ? s.prog_s_w0 : s.prog_s_w1;
+        return s.prog_s;
       }
       const base = kind;
       if (face === "e") return s[base + "_e"];
@@ -1338,7 +1685,7 @@
 
       ctx.fillStyle = "#ffe56a";
       ctx.font = "700 20px Orbitron, sans-serif";
-      ctx.fillText("WAVES 1–3", w / 2, h * 0.18 + Math.min(118, w * 0.095));
+      ctx.fillText("WAVES 1–5", w / 2, h * 0.18 + Math.min(118, w * 0.095));
 
       ctx.fillStyle = "rgba(255,255,255,0.82)";
       ctx.font = "16px 'Share Tech Mono', monospace";
@@ -1450,6 +1797,12 @@
       for (const e of this.enforcers) {
         if (e.alive) drawables.push({ z: e.y, kind: "enforcer", e });
       }
+      for (const b of this.brains) {
+        if (b.alive) drawables.push({ z: b.y, kind: "brain", e: b });
+      }
+      for (const g of this.progs) {
+        if (g.alive) drawables.push({ z: g.y, kind: "prog", e: g });
+      }
       if (this.player && this.player.alive) {
         drawables.push({ z: this.player.y, kind: "player", e: this.player });
       }
@@ -1457,6 +1810,7 @@
 
       this.renderBullets(ctx);
       this.renderSparks(ctx);
+      this.renderMissiles(ctx);
 
       for (const d of drawables) {
         if (d.kind === "electrode") this.renderElectrode(ctx, d.e);
@@ -1471,9 +1825,10 @@
           const h = d.e;
           const hh = h.kind === "mikey" ? m * 0.086 : m * 0.118;
           this.drawShadow(ctx, h.x, h.y, m * 0.018, m * 0.007);
-          const img = this.spriteFor(h.kind, h.face, true, Math.floor(h.anim));
-          const bob = Math.abs(Math.sin(h.anim * Math.PI)) * m * 0.005;
-          this.drawSprite(ctx, img, h.x, h.y, hh, h.spawn, 1, bob);
+          const img = this.spriteFor(h.kind, h.face, !h.converting, Math.floor(h.anim));
+          const bob = h.converting ? 0 : Math.abs(Math.sin(h.anim * Math.PI)) * m * 0.005;
+          const flick = h.converting ? (Math.sin(this.time * 22) > 0 ? 1 : 0.35) : 1;
+          this.drawSprite(ctx, img, h.x, h.y, hh, h.spawn, flick, bob);
         }
         if (d.kind === "hulk") {
           const h = d.e;
@@ -1485,6 +1840,30 @@
         }
         if (d.kind === "spheroid") this.renderSpheroid(ctx, d.e);
         if (d.kind === "enforcer") this.renderEnforcer(ctx, d.e);
+        if (d.kind === "brain") {
+          const b = d.e;
+          this.drawShadow(ctx, b.x, b.y, m * 0.03, m * 0.01);
+          const img = this.spriteFor("brain", b.face, !b.converting, Math.floor(b.anim));
+          const bob = b.converting ? 0 : Math.abs(Math.sin(b.anim * Math.PI)) * m * 0.004;
+          this.drawSprite(ctx, img, b.x, b.y, m * 0.12, b.spawn, 1, bob);
+          if (b.converting) {
+            ctx.save();
+            ctx.strokeStyle = "rgba(200,120,255,0.7)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y - m * 0.05, m * 0.04, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+        if (d.kind === "prog") {
+          const g = d.e;
+          const hh = g.small ? m * 0.086 : m * 0.112;
+          this.drawShadow(ctx, g.x, g.y, m * 0.018, m * 0.007);
+          const img = this.spriteFor("prog", g.face, true, Math.floor(g.anim));
+          const bob = Math.abs(Math.sin(g.anim * Math.PI)) * m * 0.005;
+          this.drawSprite(ctx, img, g.x, g.y, hh, g.spawn, 1, bob);
+        }
         if (d.kind === "player") {
           const p = d.e;
           ctx.save();
@@ -1583,6 +1962,14 @@
         ctx.lineWidth = 2;
         ctx.strokeRect(-half, -half, half * 2, half * 2);
         ctx.strokeRect(-half * 0.45, -half * 0.45, half * 0.9, half * 0.9);
+      } else if (e.style === "x") {
+        const arm = s * 0.32;
+        const lenA = s * 1.2;
+        ctx.save();
+        ctx.rotate(Math.PI / 4);
+        ctx.fillRect(-lenA, -arm, lenA * 2, arm * 2);
+        ctx.fillRect(-arm, -lenA, arm * 2, lenA * 2);
+        ctx.restore();
       } else {
         const arm = s * 0.38;
         const lenA = s * 1.15;
@@ -1647,6 +2034,26 @@
       ctx.arc(0, 0, s * 0.38, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+    }
+
+    renderMissiles(ctx) {
+      for (const m of this.missiles) {
+        const a = Math.atan2(m.vy, m.vx);
+        ctx.save();
+        ctx.translate(m.x, m.y);
+        ctx.rotate(a);
+        ctx.shadowColor = "#c77bff";
+        ctx.shadowBlur = 16;
+        const grd = ctx.createLinearGradient(-18, 0, 10, 0);
+        grd.addColorStop(0, "rgba(160,80,255,0)");
+        grd.addColorStop(0.5, "#c77bff");
+        grd.addColorStop(1, "#fff");
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.ellipse(0, Math.sin(m.wobble) * 2, 16, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     renderSparks(ctx) {
@@ -1847,14 +2254,19 @@
       ctx.fillText(`SAVED ${this.rescued}/${need}`, 318, 54);
       const sph = this.spheroids.filter((s) => s.alive).length;
       const enf = this.enforcerCount();
+      const brn = this.brains.filter((b) => b.alive).length;
       if (sph || enf) {
         ctx.fillStyle = "#ff7ae0";
         ctx.fillText(`SPH ${sph}  ENF ${enf}`, 430, 54);
       }
+      if (brn) {
+        ctx.fillStyle = "#c77bff";
+        ctx.fillText(`BRAINS ${String(brn).padStart(2, "0")}`, sph || enf ? 560 : 430, 54);
+      }
 
       if (Input.padCount) {
         ctx.fillStyle = "#7ef6ff";
-        const px = sph || enf ? 580 : 430;
+        const px = brn ? 680 : sph || enf ? 580 : 430;
         ctx.fillText(Input.dualPad ? "DUAL JOY" : "PAD", px, 54);
         this.drawStickGizmo(ctx, px + 70, 44, Input.moveX, Input.moveY, "#7ef6ff");
         this.drawStickGizmo(ctx, px + 108, 44, Input.shootX, Input.shootY, "#ff2bd6");
@@ -1917,7 +2329,7 @@
       ctx.font = "16px 'Share Tech Mono', monospace";
       ctx.fillText(
         win
-          ? `WAVES 1–3 COMPLETE    FAMILY SAVED  ${this.totalRescued}`
+          ? `WAVES 1–5 COMPLETE    FAMILY SAVED  ${this.totalRescued}`
           : "THE ROBOTS STILL HOLD 2084",
         w / 2,
         h * 0.64

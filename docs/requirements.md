@@ -1,6 +1,8 @@
 # Robotron: 2084 – Complete Reference Document
 *(Waves + Sound Effects for clone development)*
 
+Companion file: [`handoff.md`](handoff.md) — current repo status, file map, and how to continue. Do not copy original ROMs, sprites, or cabinet audio. All art and sound in this project are made from scratch.
+
 ## 1. Sound Effects (Complete List)
 
 The original arcade uses a small set of procedurally generated sounds on the Williams sound board. Modern rips typically extract these **23 distinct effects**. These cover every action, enemy, human interaction, and transition across **all waves**:
@@ -126,8 +128,160 @@ The pattern of waves 21–40 repeats with higher intensity parameters (faster en
 | Cruise Missile / Enforcer Spark / Tank Shell | 25–50 |
 | Human (1st / 2nd / 3rd / 4th / 5th+) | 1,000 / 2,000 / 3,000 / 4,000 / 5,000 |
 
-Extra life every 20,000 / 25,000 / 30,000 / 50,000 points (operator setting; most common is 25,000).
+Extra life every 20,000 / 25,000 / 30,000 / 50,000 points (operator setting; most common is 25,000). This remake uses **25,000**, once per game.
 
 ---
 
-*This document contains everything needed for a faithful clone: the complete sound set and the full wave progression with exact starting counts.*
+## 5. Wave-clear rule (authoritative)
+
+Original `WVCHEK` sums these counters. The wave ends when the sum is **zero**:
+
+| Counter | Entity | Must clear? |
+|---------|--------|-------------|
+| `ROBCNT` | Grunts | yes |
+| `CIRCNT` | Spheroids | yes |
+| `ENFCNT` | Enforcers | yes |
+| `BRNCNT` | Brains | yes |
+| `TNKCNT` | Tanks | yes |
+| `SQCNT` | Quarks | yes |
+
+**Do not require** Hulks, humans, electrodes, or Progs. Hulks are invincible. Electrodes are optional to shoot. Humans are bonus. Progs are converted humans and are **not** in `WVCHEK` — verify in play if a leftover Prog should linger after the wave ends (original lets the wave end without them).
+
+On wave complete the original: increments wave number, plays `WVSND` (command `$0E` SP1 ×29), kills processes, clears the screen, runs the marquee wipe (`RMST`), respawns the player in the center, materializes the next wave.
+
+---
+
+## 6. Player and family rules
+
+- **Lives:** 3 to start. Extra man at 25,000 (this remake).
+- **Spawn:** exact center. ~2 s invulnerability with flicker. Player can move/shoot during invuln.
+- **Death:** contact with Grunt, Hulk, Brain, Prog, Enforcer, Spheroid, Quark, Tank, electrode, Enforcer spark, Tank shell, or cruise missile. Remaining *destructible* enemies stay. Original also **clears live Enforcers and sparks** on player death; Spheroids keep their remaining hatch quota.
+- **Shots:** independent aim (original 8-way; this remake uses analog 360°). Auto-fire while the fire stick is held. Cap ~4–8 bullets on screen. New shot does not wait for old ones if under the cap.
+- **Human rescue chain:** 1000 → 2000 → 3000 → 4000 → 5000, then wraps. `SAVCNT` is cleared on **player init / player death**, not on wave change. (Section 2 above said “resets on new wave” — that is **wrong**; keep the chain across waves.)
+- **Humans:** wander, bounce off walls. Die on electrodes and Hulks (and Brains start conversion instead of an instant kill). Rescue by touching. They do not shoot and do not hurt the player.
+
+---
+
+## 7. Entity behavior (what to implement)
+
+### Implemented (waves 1–4)
+
+| Entity | Touch player | Shot | Electrode | Notes |
+|--------|--------------|------|-----------|--------|
+| **Grunt** | kill | 100, dies | dies, no score | Chases player. Speed = base × `gruntMul` + time accel (stall punishment). Light separation so they do not stack. |
+| **Electrode** | kill | 0, destroyed | — | Static. Wave style: plus / diamond / square / x. Color via `electrodeHue`. |
+| **Hulk** | kill | immune (flash + thud) | immune | Slow. Prefers nearest living human, else wanders. Indestructible. |
+| **Mommy / Daddy / Mikey** | rescue | immune | dies | Wander. Mikey is smaller. |
+| **Spheroid** | kill | 1000 | dies | Wavy bounce. First hatch after `hatchFirst` s, then every `hatchNext`. Quota `quotaMin`–`quotaMax` then vanishes (no 1000). Global Enforcer cap `enforcerCap`. **Priority target.** |
+| **Enforcer** | kill | 150 | dies | Hatched by Spheroids. Weaves toward player. Fires pinwheel sparks at `fireMin`–`fireMax`. |
+| **Spark** | kill | 25 | n/a | Fast-ish, slides on walls, lifetime ~1.7 s, max ~12 on screen. |
+
+Spheroid / Enforcer tuning for early waves is **intentionally milder** than late arcade. Do not restore the old “machine-gun / 8-cap / 0.1 s fire” values for waves 2–4. Ramp on later waves only.
+
+### Not implemented (needed from wave 5 on)
+
+**Brain** (wave 5, then every 5th). Slow walker. Seeks humans. On contact starts **reprogramming** (~1–2 s): play `human-to-prog`, then `prog-transformation`; human becomes a **Prog**. Also fires **cruise missiles** that home on the player (25–50 pts if shot). Brain is 500. First Brain waves have **zero Hulks** and a huge human pile — the puzzle is save vs. convert.
+
+**Prog.** Converted human. Chases the player like a dim Grunt. 100 pts. Does not block wave-end.
+
+**Cruise missile.** Homing projectile from Brains. Shot for 25–50. Kills player on contact.
+
+**Quark** (wave 7+). Spheroid analog for Tanks. Bounces, spawns Tanks, 1000 pts. `quark-spawn` / death sounds.
+
+**Tank.** Spawned by Quarks. Fires **shells that bounce off walls**. 200 pts. Tank waves (`7, 12, 17…`) have **0 Grunts and 0 electrodes** — the floor is open, Hulks + Quarks + Tanks + family.
+
+**Tank shell.** Ricochets. Shot for 25–50. Lethal. Bounce sound.
+
+**Grunt Swarm** (waves ending in 9). 60–80 Grunts, **0 electrodes**, player starts center. Fewer Hulks. Speed pressure is the point.
+
+**Hulk wave** (14, 34, …). 20–25 Hulks packed around the player. Almost no shooting puzzle — pathing and family rescue.
+
+**Double Trouble** (24, 44, …). 0 Grunts, 0 electrodes, many Spheroids **and** Quarks at once.
+
+---
+
+## 8. Original speed / timing tables (ROM `WVTAB`)
+
+Source: Williams assembly `RRG23.ASM` (`WVTAB` / `WVCNT`). Lower delay = faster. Values are **per wave 1–40** (two rows of 20).
+
+Useful ones when tuning later waves:
+
+| Symbol | Meaning | Wave 1 → 2 → 3 → 4 |
+|--------|---------|---------------------|
+| `ROBSPD` | Grunt step delay | 20, 15, 15, 15 |
+| `RMXSPD` | Grunt max-speed floor | 9, 7, 6, 5 |
+| `HLKSPD` | Hulk delay | 8, 8, 7, 7 |
+| `ENSTIM` | Enforcer-related timer | 30, 28, 26, 24 |
+| `ENFNUM` | Enforcer-related count | 10, 10, 10, 10 |
+
+Stall rule (original `GEXEC`): if the player is not scoring, Grunt speed is forced toward `RMXSPD` faster. This remake approximates that with `waveTime` accel on Grunts.
+
+**Bozo table** (early-wave mercy if the player is dying with ships left, waves 1–4 only):
+
+```
+WAVE 1: CDPTIM=38 ENSTIM=96 ROBSPD=30 RMXSPD=15
+WAVE 2: 38, 96, 25, 12
+WAVE 3: 36, 48, 20, 10
+WAVE 4: 30, 30, 15, 7
+```
+
+Not implemented. Optional later.
+
+---
+
+## 9. Original sound command map (game CPU → board)
+
+Do **not** extract cabinet WAVs. Recreate. Game tables use `SND#` which, after PIA invert, **is** the sound-board command.
+
+| Event | Table | SND# | Engine (board) | Remake hook |
+|-------|--------|------|----------------|-------------|
+| Laser | `LASSND` | `$01` | GWAVE HBDV | `AudioFX.shot` → `laser.wav` |
+| Robot / Enforcer hit | `RBSND` / `ENKSND` | `$14` then `$17` | TURBO + CANNON | `gruntDie` |
+| Electrode | `PSKSND` | `$17` | CANNON | `electrodeHit` |
+| Rescue | `SAVSND` | `$0D` | GWAVE ED17 | `rescue` |
+| Human death | `HKSND` | `$1A` | SCREAM | `humanDie` |
+| Player death | `PDSND` | `$11` then `$17` | LITE + CANNON | `playerDie` |
+| Start | `ST1SND` | `$28` | GWAVE GDYUKV | `waveStart` |
+| Wave end | `WVSND` | `$0E` ×29 | VARI SP1 | `waveClear` → `waveend.wav` |
+| Extra life | `RPSND` | `$1E` | VARI FOSHIT | `extraLife` |
+| Hulk hit | `HKHSND` | `$06` | GWAVE HBEV | `hulkHit` (currently `ui.wav`) |
+| Enforcer fire | `ENFSND` | `$1D` | VARI SAW | `enforcerShot` (layered, not exclusive) |
+| Coin / UI | `CNSND` | `$0C` | GWAVE ED12 | `ui` |
+
+Still needed for later waves: Brain start / Brain die / human-to-prog / prog transform / quark spawn / tank fire / tank bounce / tank explode. Generate new WAVs in `tools/gen_williams_sounds.py` — never rip MAME samples.
+
+Williams board: **one DAC voice**; a new IRQ preempts the current one, except we keep a separate BG drone and layered Enforcer ticks so the laser is not silenced.
+
+---
+
+## 10. Controls and presentation (this remake)
+
+- Full viewport canvas. **F** = fullscreen. Do not lock to a tiny 4:3 box.
+- Gamepad: left stick move, right stick fire 360°. Two physical pads = stick1 move, stick2 fire.
+- Keyboard: WASD move, arrows or IJKL fire. Mouse-click aim also works.
+- Start: Space / Enter / click / A or Start. Pause: Esc.
+- Title, intro banner, splashy `TRANS` intermission (~3.35 s), then next-wave intro.
+- HUD: score, high, wave, lives, hostiles left, saved this wave, SPH/ENF when present.
+
+---
+
+## 11. Legal / asset policy
+
+Unofficial fan remake. Not affiliated with Williams, Vid Kidz, Midway, or Warner Bros.
+
+**All sprites, title art, floor texture, and sounds in this repo were created from scratch.** No ROM dumps, no ripped arcade graphics, no extracted cabinet audio, no 6809/6808 source in the tree. Keep it that way. Homage in behavior and palette is fine; copying files from MAME is not.
+
+---
+
+## 12. Suggested build order from here
+
+1. **Wave 5 — first Brain wave.** Brains, reprogramming, Progs, cruise missiles, 15 Mommies + 1 Mikey, 0 Hulks, 1 Spheroid. This is the next *real* systems drop.
+2. Wave 6 (normal, denser).
+3. **Wave 7 — first Tank wave.** Quarks + Tanks + bouncing shells, 0 Grunts, 0 electrodes.
+4. Generalize `WAVES[]` from the §3 table through wave 40, then 21–40 wrap with a difficulty multiplier.
+5. Attract mode, 2-player alternate, initials on high score, operator extra-life options.
+6. Optional Bozo mercy on waves 1–4.
+
+---
+
+*Wave counts in §3 match `WVCNT` in the released Williams assembly. Behavior in §5–§8 is what a clone needs beyond those counts.*

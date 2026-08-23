@@ -177,6 +177,28 @@
       this._play("appear");
     },
 
+    brainFire(pan = 0) {
+      this._play("lite", pan);
+    },
+
+    brainDie(pan = 0) {
+      this.sequence(
+        [
+          { name: "scream", ms: 0 },
+          { name: "cannon", ms: 180 },
+        ],
+        pan
+      );
+    },
+
+    convertStart() {
+      this._play("appear");
+    },
+
+    convertDone() {
+      this._play("ui");
+    },
+
     hulkHit(pan = 0) {
       this.fire("ui", pan);
     },

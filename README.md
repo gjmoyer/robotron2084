@@ -78,6 +78,8 @@ Then go to [http://localhost:8765](http://localhost:8765) and press **F** for fu
 | **1** | 15 Grunts, 5 electrodes, Mommy & Daddy |
 | **2** | 17 Grunts, 15 electrodes, 5 Hulks, Mikey, 1 Spheroid |
 | **3** | 22 Grunts, 25 electrodes, 6 Hulks, the full family, 3 Spheroids |
+| **4** | 34 Grunts, 25 electrodes, 7 Hulks, the full family, 4 Spheroids |
+| **5** | 20 Grunts, 20 electrodes, 15 Brains, 15 Mommies, 1 Mikey, 1 Spheroid |
 
 Hulks cannot be killed. Spheroids hatch Enforcers. Enforcers fill the screen with sparks. Kill the Spheroids first.
 
@@ -92,7 +94,11 @@ index.html
 src/          game loop, input, audio, FX
 assets/       original sprites and synthesized sounds
 tools/        sprite keying and sound generation helpers
+docs/         full clone spec + handoff for continuing the build
 ```
+
+- [`docs/requirements.md`](docs/requirements.md) — waves 1–40, scoring, entity rules, sound commands
+- [`docs/handoff.md`](docs/handoff.md) — what is implemented, file map, how to add the next wave
 
 ---
 
