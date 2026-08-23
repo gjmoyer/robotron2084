@@ -28,12 +28,15 @@
       electrodeHue: 48,
       gruntMul: 1,
       humans: 2,
-      hatchFirst: 1.4,
-      hatchNext: 0.55,
-      quotaMin: 4,
-      quotaMax: 6,
-      fireMin: 0.18,
-      fireMax: 0.34,
+      hatchFirst: 2.4,
+      hatchNext: 1.4,
+      quotaMin: 3,
+      quotaMax: 4,
+      fireMin: 0.7,
+      fireMax: 1.15,
+      enforcerCap: 4,
+      enforcerMul: 0.72,
+      sparkMul: 0.48,
       subtitle: "THE LAST HUMAN FAMILY",
     },
     {
@@ -48,12 +51,15 @@
       electrodeHue: 188,
       gruntMul: 1.28,
       humans: 3,
-      hatchFirst: 1.15,
-      hatchNext: 0.42,
-      quotaMin: 5,
-      quotaMax: 8,
-      fireMin: 0.14,
-      fireMax: 0.28,
+      hatchFirst: 2.2,
+      hatchNext: 1.25,
+      quotaMin: 3,
+      quotaMax: 5,
+      fireMin: 0.62,
+      fireMax: 1.05,
+      enforcerCap: 4,
+      enforcerMul: 0.78,
+      sparkMul: 0.52,
       subtitle: "HULKS ATTACK",
     },
     {
@@ -68,12 +74,15 @@
       electrodeHue: 312,
       gruntMul: 1.42,
       humans: 6,
-      hatchFirst: 0.85,
-      hatchNext: 0.28,
-      quotaMin: 6,
-      quotaMax: 8,
-      fireMin: 0.1,
-      fireMax: 0.2,
+      hatchFirst: 1.8,
+      hatchNext: 0.95,
+      quotaMin: 4,
+      quotaMax: 6,
+      fireMin: 0.48,
+      fireMax: 0.82,
+      enforcerCap: 6,
+      enforcerMul: 0.86,
+      sparkMul: 0.58,
       subtitle: "SPHEROID STORM",
     },
   ];
@@ -796,7 +805,7 @@
         vx: Math.cos(kick),
         vy: Math.sin(kick),
         r: this.minDim * 0.02,
-        fire: rand(0.12, 0.35),
+        fire: rand(spec.fireMin * 1.15, spec.fireMax * 1.25),
         spawn: 0,
         phase: Math.random() * 6,
         weave: rand(0, Math.PI * 2),
@@ -812,7 +821,7 @@
       const speed = this.minDim * 0.2;
       const { x, y, w, h } = this.arena;
       const head = this.minDim * 0.1;
-      const cap = 8;
+      const cap = spec.enforcerCap || 4;
       for (const s of this.spheroids) {
         if (!s.alive) continue;
         // wavy drift, tend toward edges
@@ -863,15 +872,15 @@
     updateEnforcers(dt) {
       const p = this.player;
       const spec = this.waveSpec();
-      const speed = this.minDim * 0.24;
+      const speed = this.minDim * 0.17 * (spec.enforcerMul || 1);
       const m = this.minDim;
       for (const e of this.enforcers) {
         if (!e.alive) continue;
-        e.weave += dt * 7;
+        e.weave += dt * 5;
         if (p && p.alive) {
           const [nx, ny] = norm(p.x - e.x, p.y - e.y);
-          const wx = -ny * Math.sin(e.weave) * 0.45;
-          const wy = nx * Math.sin(e.weave) * 0.45;
+          const wx = -ny * Math.sin(e.weave) * 0.35;
+          const wy = nx * Math.sin(e.weave) * 0.35;
           e.vx = nx + wx;
           e.vy = ny + wy;
           const [ux, uy] = norm(e.vx, e.vy);
@@ -879,22 +888,22 @@
           e.y += uy * speed * dt;
           this.clampEntity(e);
           e.fire -= dt;
-          if (e.fire <= 0 && this.sparks.length < 20) {
+          if (e.fire <= 0 && this.sparks.length < 12) {
             e.fire = rand(spec.fireMin, spec.fireMax);
-            const jitter = m * 0.045;
+            const jitter = m * 0.07;
             const tx = p.x + (Math.random() - 0.5) * jitter * 2;
             const ty = p.y + (Math.random() - 0.5) * jitter * 2;
             const [ax, ay] = norm(tx - e.x, ty - e.y);
             const dist = Math.hypot(p.x - e.x, p.y - e.y);
-            const close = clamp(dist / (m * 0.22), 0.55, 1);
-            const spd = m * (0.92 * close);
+            const close = clamp(dist / (m * 0.28), 0.5, 1);
+            const spd = m * ((spec.sparkMul || 0.5) * close);
             this.sparks.push({
               x: e.x,
               y: e.y - m * 0.018,
               vx: ax * spd,
               vy: ay * spd,
               r: m * 0.011,
-              life: 2.8,
+              life: 1.7,
               spin: Math.random() * Math.PI * 2,
             });
             AudioFX.enforcerShot(((e.x - this.arena.x) / this.arena.w) * 2 - 1);
