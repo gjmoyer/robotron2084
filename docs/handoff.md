@@ -4,13 +4,13 @@ Read this first in a new session. Design rules and the wave-1–40 table live in
 
 ## Snapshot
 
-- **Playable:** waves **1–5**, then `SECTOR CLEAR`.
+- **Playable:** waves **1–6**, then `SECTOR CLEAR`.
 - **Stack:** static HTML/CSS/JS. No bundler. `python3 -m http.server 8765` then open `http://localhost:8765`.
 - **Entry:** `index.html` → `src/input.js`, `audio.js`, `fx.js`, `game.js`, `main.js`.
 - **Repo:** https://github.com/gjmoyer/robotron2084
 - **Constraint:** original work only. Do not import Williams ROM binaries, MAME samples, or ripped sprites.
 
-`MAX_WAVE` in `src/game.js` is `5`. Raising it without adding a `WAVES[n]` entry will break the intermission (`WAVES[this.waveNum + 1]`).
+`MAX_WAVE` in `src/game.js` is `6`. Raising it without adding a `WAVES[n]` entry will break the intermission (`WAVES[this.waveNum + 1]`).
 
 ## File map
 
@@ -131,9 +131,7 @@ Do not “fix” these without playing:
 
 ## Next concrete task
 
-**Wave 6 (normal).** 32 Grunts, 25 electrodes, 3+3+3 family, 7 Hulks, 4 Spheroids.
-
-Then **wave 7 — first Tank wave.** Quarks + Tanks + bouncing shells, 0 Grunts, 0 electrodes. After that, data-drive waves 8–40 from the table in `requirements.md` §3.
+**Wave 7 — first Tank wave.** Quarks + Tanks + bouncing shells, 0 Grunts, 0 electrodes, 12 Hulks, 4 of each family. After that, data-drive waves 8–40 from the table in `requirements.md` §3.
 
 ## Original references (behavior only)
 

@@ -12,7 +12,7 @@
 
   const HS_KEY = "robotron2084_hs";
   const HS_KEY_OLD = "robotron2084_wave1_hs";
-  const MAX_WAVE = 5;
+  const MAX_WAVE = 6;
 
   const WAVES = [
     null,
@@ -133,6 +133,30 @@
       brainMul: 0.72,
       missileMul: 0.4,
       subtitle: "BRAIN WAVE — SAVE THE MOMMIES",
+    },
+    {
+      grunts: 32,
+      electrodes: 25,
+      mommy: 3,
+      daddy: 3,
+      mikey: 3,
+      hulks: 7,
+      spheroids: 4,
+      brains: 0,
+      electrodeStyle: "diamond",
+      electrodeHue: 132,
+      gruntMul: 1.52,
+      humans: 9,
+      hatchFirst: 1.75,
+      hatchNext: 0.95,
+      quotaMin: 4,
+      quotaMax: 6,
+      fireMin: 0.48,
+      fireMax: 0.82,
+      enforcerCap: 6,
+      enforcerMul: 0.88,
+      sparkMul: 0.58,
+      subtitle: "FAMILY IN THE CROSSFIRE",
     },
   ];
 
@@ -1685,7 +1709,7 @@
 
       ctx.fillStyle = "#ffe56a";
       ctx.font = "700 20px Orbitron, sans-serif";
-      ctx.fillText("WAVES 1–5", w / 2, h * 0.18 + Math.min(118, w * 0.095));
+      ctx.fillText("WAVES 1–6", w / 2, h * 0.18 + Math.min(118, w * 0.095));
 
       ctx.fillStyle = "rgba(255,255,255,0.82)";
       ctx.font = "16px 'Share Tech Mono', monospace";
@@ -2313,30 +2337,82 @@
     renderEnd(ctx, win) {
       const w = this.viewW;
       const h = this.viewH;
-      ctx.fillStyle = "rgba(4,6,12,0.55)";
+      const t = this.stateTime;
+      ctx.fillStyle = "rgba(4,6,12,0.62)";
       ctx.fillRect(0, 0, w, h);
+
+      if (win) {
+        ctx.save();
+        ctx.translate(w / 2, h * 0.42);
+        const rays = 12;
+        ctx.rotate(t * 0.25);
+        for (let i = 0; i < rays; i++) {
+          ctx.rotate((Math.PI * 2) / rays);
+          const g = ctx.createLinearGradient(0, 0, 0, -h * 0.45);
+          g.addColorStop(0, "rgba(126,246,255,0.08)");
+          g.addColorStop(1, "rgba(126,246,255,0)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.moveTo(-14, 0);
+          ctx.lineTo(14, 0);
+          ctx.lineTo(70, -h * 0.45);
+          ctx.lineTo(-70, -h * 0.45);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
       ctx.textAlign = "center";
-      ctx.shadowColor = win ? "#3fffb0" : "#ff4466";
-      ctx.shadowBlur = 22;
-      ctx.fillStyle = win ? "#7effc4" : "#ff6a7a";
-      ctx.font = `900 ${Math.round(Math.min(60, w * 0.048))}px Orbitron, sans-serif`;
-      ctx.fillText(win ? "SECTOR CLEAR" : "GAME OVER", w / 2, h * 0.36);
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#fff";
-      ctx.font = "700 22px Orbitron, sans-serif";
-      ctx.fillText("SCORE  " + String(this.score).padStart(6, "0"), w / 2, h * 0.58);
-      ctx.fillStyle = "#ffe56a";
-      ctx.font = "16px 'Share Tech Mono', monospace";
-      ctx.fillText(
-        win
-          ? `WAVES 1–5 COMPLETE    FAMILY SAVED  ${this.totalRescued}`
-          : "THE ROBOTS STILL HOLD 2084",
-        w / 2,
-        h * 0.64
-      );
-      ctx.fillStyle = "#fff";
-      ctx.font = "700 18px Orbitron, sans-serif";
-      ctx.fillText("PRESS START TO PLAY AGAIN", w / 2, h * 0.72);
+      if (win) {
+        const pulse = 0.75 + 0.25 * Math.sin(t * 3.2);
+        ctx.save();
+        ctx.shadowColor = "#18e8ff";
+        ctx.shadowBlur = 28;
+        ctx.fillStyle = "#7ef6ff";
+        ctx.font = `900 ${Math.round(Math.min(56, w * 0.046))}px Orbitron, sans-serif`;
+        ctx.fillText("END OF TRANSMISSION", w / 2, h * 0.28);
+        ctx.shadowColor = "#ff2bd6";
+        ctx.fillStyle = "#ff7ae0";
+        ctx.font = `900 ${Math.round(Math.min(42, w * 0.034))}px Orbitron, sans-serif`;
+        ctx.fillText("2084 IS NOT SAVED — YET", w / 2, h * 0.36);
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = "#ffe56a";
+        ctx.font = "700 16px Orbitron, sans-serif";
+        ctx.fillText("MAPPED SECTORS  1–" + MAX_WAVE + "  CLEARED", w / 2, h * 0.44);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "rgba(220,230,255,0.88)";
+        ctx.font = "15px 'Share Tech Mono', monospace";
+        ctx.fillText("THE LAST HUMAN FAMILY LIVES.  THE NEXT WAVES ARE STILL BEING BUILT.", w / 2, h * 0.51);
+        ctx.fillText("BRAINS, TANKS, AND WORSE ARE OUT THERE.  COME BACK FOR THE REST OF THE WAR.", w / 2, h * 0.555);
+        ctx.fillStyle = "#fff";
+        ctx.font = "700 22px Orbitron, sans-serif";
+        ctx.fillText("SCORE  " + String(this.score).padStart(6, "0"), w / 2, h * 0.64);
+        ctx.fillStyle = "#f7a";
+        ctx.font = "16px 'Share Tech Mono', monospace";
+        ctx.fillText("FAMILY SAVED  " + this.totalRescued, w / 2, h * 0.69);
+        ctx.globalAlpha = 0.65 + 0.35 * Math.sin(t * 3.2);
+        ctx.fillStyle = "#fff";
+        ctx.font = "700 18px Orbitron, sans-serif";
+        ctx.fillText("PRESS START TO HOLD THE LINE AGAIN", w / 2, h * 0.78);
+        ctx.restore();
+      } else {
+        ctx.shadowColor = "#ff4466";
+        ctx.shadowBlur = 22;
+        ctx.fillStyle = "#ff6a7a";
+        ctx.font = `900 ${Math.round(Math.min(60, w * 0.048))}px Orbitron, sans-serif`;
+        ctx.fillText("GAME OVER", w / 2, h * 0.36);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#fff";
+        ctx.font = "700 22px Orbitron, sans-serif";
+        ctx.fillText("SCORE  " + String(this.score).padStart(6, "0"), w / 2, h * 0.58);
+        ctx.fillStyle = "#ffe56a";
+        ctx.font = "16px 'Share Tech Mono', monospace";
+        ctx.fillText("THE ROBOTS STILL HOLD 2084", w / 2, h * 0.64);
+        ctx.fillStyle = "#fff";
+        ctx.font = "700 18px Orbitron, sans-serif";
+        ctx.fillText("PRESS START TO PLAY AGAIN", w / 2, h * 0.72);
+      }
     }
 
     renderPause(ctx) {
