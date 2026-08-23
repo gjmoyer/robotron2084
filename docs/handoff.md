@@ -1,143 +1,132 @@
 # Handoff — finish this remake
 
-Read this first in a new session. Design rules and the wave-1–40 table live in [`requirements.md`](requirements.md). This file is **what the repo actually is right now** and how to extend it without undoing prior work.
+Read this first in a new session. Design rules and the wave-1–40 table live in [`requirements.md`](requirements.md). This file is **what the repo actually is right now**.
 
-## Snapshot
+## Snapshot (end of 2026-08-23 session)
 
-- **Playable:** waves **1–6**, then `SECTOR CLEAR`.
-- **Stack:** static HTML/CSS/JS. No bundler. `python3 -m http.server 8765` then open `http://localhost:8765`.
-- **Entry:** `index.html` → `src/input.js`, `audio.js`, `fx.js`, `game.js`, `main.js`.
+- **Playable:** waves **1–7**, then the unfinished-war end card (`END OF TRANSMISSION` / *2084 is not saved — yet*). Not a simple “sector clear.”
+- **Systems in:** Grunt, electrode, Hulk, family, Spheroid, Enforcer, spark, Brain, Prog, cruise missile, Quark, Tank, bouncing shell, splashy wave wipe.
+- **Stack:** static HTML/CSS/JS. `python3 -m http.server 8765` → http://localhost:8765
 - **Repo:** https://github.com/gjmoyer/robotron2084
-- **Constraint:** original work only. Do not import Williams ROM binaries, MAME samples, or ripped sprites.
+- **Constraint:** original work only. No Williams ROM binaries, MAME samples, or ripped sprites.
 
-`MAX_WAVE` in `src/game.js` is `6`. Raising it without adding a `WAVES[n]` entry will break the intermission (`WAVES[this.waveNum + 1]`).
+`MAX_WAVE` in `src/game.js` is `7`. Raising it without a `WAVES[n]` object breaks the intermission.
 
 ## File map
 
 | Path | Role |
 |------|------|
-| `src/game.js` | Entire sim + render. `WAVES[]` is the per-wave table. `STATE`: title, intro, play, dead, trans, clear, over, pause. |
-| `src/input.js` | Keyboard, mouse aim, Gamepad API (1 dual-stick or 2 sticks). `Input.consumeStart` / `consumePause`. Latch on keydown so short taps count. |
-| `src/audio.js` | Loads `assets/sounds/*.wav`. `fire()` preempts the one-shot voice. `_play()` layers (use for Enforcer ticks / hatches). `setTension` loops `bg0`–`bg3`. |
-| `src/fx.js` | Particles, rings, score pops, shake, flash, hitstop. |
-| `src/main.js` | Resize, rAF loop, `?autostart`, `window.__game` for debug. |
-| `assets/sprites/` | Keyed PNGs. Foot-anchored when drawn. |
-| `assets/sounds/` | Pre-rendered Williams-style WAVs at 22050 Hz. |
-| `tools/process_sprites.py` | Dark-bg key + crop. Call `key_and_crop` / `save` for new stills. |
-| `tools/gen_williams_sounds.py` | VARI/Sound1 (Lomont), GWAVE, FNOISE, LFSR, SCREAM, organ 9th. |
+| `src/game.js` | Sim + render. `WAVES[]`, `STATE`, all entities. |
+| `src/input.js` | Keyboard, mouse aim, Gamepad (dual-stick or two pads). |
+| `src/audio.js` | `fire()` preempts; `_play()` layers. |
+| `src/fx.js` | Particles, rings, pops, shake, flash, hitstop. |
+| `src/main.js` | Resize, rAF, `?autostart`, `window.__game`. |
+| `assets/sprites/` | Keyed PNGs, foot-anchored. |
+| `assets/sounds/` | Synthesized WAVs @ 22050 Hz. |
+| `tools/process_sprites.py` | Dark-bg key + crop. |
+| `tools/gen_williams_sounds.py` | VARI / GWAVE / FNOISE / LFSR / SCREAM / organ. |
 
-## How a wave is defined
+## `WAVES[]` fields
 
-`WAVES` is 1-indexed (`WAVES[0] === null`). Each entry:
+1-indexed (`WAVES[0] === null`).
 
 ```
 grunts, electrodes, mommy, daddy, mikey, hulks, spheroids
-electrodeStyle: "plus" | "diamond" | "square" | "x"
-electrodeHue: 0–360
-gruntMul                 // 1.0 on wave 1; ~1.28 / 1.42 / 1.48 on 2–4
-humans                   // mommy+daddy+mikey (HUD denominator)
-hatchFirst, hatchNext    // seconds
-quotaMin, quotaMax       // Enforcers per Spheroid, then Spheroid vanishes
-fireMin, fireMax         // Enforcer shot interval
-enforcerCap              // live Enforcers
-enforcerMul, sparkMul    // chase / spark speed vs minDim
-subtitle                 // intro + intermission
+brains, quarks                 // optional; default 0
+electrodeStyle                 // "plus" | "diamond" | "square" | "x"
+electrodeHue                   // 0–360
+gruntMul, humans
+hatchFirst, hatchNext          // Spheroid and Quark hatch (seconds)
+quotaMin, quotaMax             // children per Spheroid/Quark
+fireMin, fireMax, enforcerCap, enforcerMul, sparkMul
+tankCap, tankFireMin, tankFireMax, tankMul, shellMul
+brainMul, missileMul
+subtitle
 ```
 
-**Wave-end:** `hostilesLeft()` = living Grunts + Spheroids + Enforcers + Brains. When 0: if `waveNum < MAX_WAVE` → `beginTransition()` else `STATE.CLEAR`.
+**Wave-end:** `hostilesLeft()` = Grunts + Spheroids + Enforcers + Brains + Quarks + Tanks.  
+Progs, missiles, shells, Hulks, family, electrodes do **not** block.
 
-When you add Tank / Quark, **add them to `hostilesLeft()`** or waves will end too early. Progs and missiles do not block wave-end.
+## Adding wave N
 
-## Adding wave N (checklist)
+1. Counts from `requirements.md` §3.
+2. Append a `WAVES` object. Tank/swarm waves: `electrodes: 0` (and often `grunts: 0`).
+3. `MAX_WAVE = N`.
+4. New entity? Spawn, update, collide, draw, `hostilesLeft`.
+5. Title `WAVES 1–N` is only on the attract screen; the end card uses `MAX_WAVE` automatically.
+6. Keep early-wave Enforcer/Tank fire **mild**. Machine-gun rates were reverted once.
 
-1. Confirm counts from `requirements.md` §3 (they match `WVCNT` in `RRG23.ASM`).
-2. Append a `WAVES` object. Pick a new electrode style/hue if it is a “normal” wave. Tank / swarm waves use `electrodes: 0`.
-3. Set `MAX_WAVE = N`.
-4. If the wave introduces a **new entity**, implement spawn in `buildWave`, update, collide, draw, and `hostilesLeft`.
-5. Update title (`WAVES 1–N`), end card (`SECTOR CLEAR` copy), and `README.md` wave table.
-6. Keep Enforcer/Spheroid rates **gentler than late arcade** until you are past wave ~10. Early-wave aggression was already reverted once.
+## Art
 
-## Art pipeline
+Style: 2D arcade cel-shade, neon rim, isolated on `#0B0B14`.
 
-Style: stylized 2D arcade, cel-shade, neon rim, isolated on flat `#0B0B14`, no ground shadow.
+**Have:** player N/E/S/W + S walk; Grunt S walk + N; Hulk S walk; Mommy/Daddy/Mikey S walk + E/W; Brain S walk; Prog S walk; Tank S/E/W; Quark orb.
 
-Existing: player (N/E/S/W + S walk), Grunt (S walk + N), Hulk (S walk), Mommy/Daddy/Mikey (S walk + E/W flip), Brain (S walk), Prog (S walk).
+**Still generate if needed:** Tank north (currently uses front), Brain/Prog side views. Cruise missiles and shells are code-drawn.
 
-**Still needed (generate new, do not rip):**
+Spheroid, Enforcer, spark, electrode, missile, shell = code in `render*`.
 
-- Quark (or code-render like Spheroid)
-- Tank (4-dir or top-down)
-- Cruise missile / tank shell can stay code-rendered
+## Sound
 
-After generation: key with `tools/process_sprites.py`, add paths to `SPRITE_URLS`, extend `spriteFor()`.
+`AudioFX.fire` = exclusive DAC voice. High-rate SFX must use `_play`.
 
-Spheroid, Enforcer, sparks, electrodes are **code-drawn** in `renderSpheroid` / `renderEnforcer` / `renderSparks` / `renderElectrode`.
+| Method | File / notes |
+|--------|----------------|
+| `shot` | `laser.wav` exclusive, retrigger |
+| `gruntDie` | turbo → cannon @192 ms |
+| `electrodeHit` | cannon |
+| `rescue` | rescue.wav |
+| `humanDie` | scream.wav |
+| `playerDie` | lite → cannon @256 ms |
+| `waveStart` | start.wav |
+| `waveClear` | waveend.wav (~2.4 s) |
+| `waveFanfare` | ninth.wav layered in TRANS |
+| `extraLife` | extralife.wav (long FOSHIT) |
+| `enforcerShot` / `hatchPop` / `brainFire` / `tankFire` / `tankBounce` / `convert*` | `_play` layered |
+| `brainDie` | scream → cannon |
+| `quarkDie` | same as spheroidDie |
+| `tankDie` | cannon |
+| `setTension` | bg0–bg3 loop |
 
-## Sound pipeline
+## Scoring (as coded)
 
-`python3 tools/gen_williams_sounds.py` writes `assets/sounds/`. VARI parameters are Lomont’s five in-game sets (SAW / FOSHIT / QUASAR / CABSHK / CSCALE) — mathematically generated, not ripped.
-
-| `AudioFX` | File | Notes |
-|-----------|------|--------|
-| `shot` | `laser.wav` | Exclusive; retriggered every shot |
-| `gruntDie` | `turbo` then `cannon` @192 ms | Sequence |
-| `electrodeHit` | `cannon` | |
-| `rescue` | `rescue.wav` | |
-| `humanDie` | `scream.wav` | |
-| `playerDie` | `lite` then `cannon` @256 ms | |
-| `waveStart` | `start.wav` | |
-| `waveClear` | `waveend.wav` | ~2.4 s SP1 walk |
-| `waveFanfare` | `ninth.wav` | Layered during `TRANS` |
-| `extraLife` | `extralife.wav` | Full FOSHIT (~5 s) |
-| `enforcerShot` | `ui.wav` via `_play` | Must stay layered |
-| `hatchPop` | `appear.wav` via `_play` | Must stay layered |
-| `setTension` | `bg0`–`bg3` | Loop; stop on trans/over |
-
-New enemy sounds: add a generator + WAV + `FILES` + method. Do not use `fire()` for high-rate SFX.
-
-## Scoring / persist (as coded)
-
-| Event | Points |
-|-------|--------|
-| Grunt | 100 |
+| Event | Pts |
+|-------|-----|
+| Grunt / Prog | 100 |
 | Enforcer | 150 |
-| Spark | 25 |
-| Spheroid | 1000 (only if shot; quota-vanish = 0) |
+| Tank | 200 |
+| Brain | 500 |
+| Spheroid / Quark | 1000 if shot; 0 if quota-vanish |
+| Spark / missile / shell | 25 |
 | Electrode | 0 |
 | Human | 1000…5000 chain |
-| Extra life | 25,000 once (`extraAwarded`) |
+| Extra life | 25,000 once |
 
-High score: `localStorage.robotron2084_hs` (falls back to `robotron2084_wave1_hs`).
+High score: `localStorage.robotron2084_hs`. Chain persists across waves; resets on death.
 
-Human chain **persists across waves**, resets on player death. `rescued` is per-wave (HUD); `totalRescued` is campaign.
+## Tuned numbers — do not “fix” cold
 
-## Feel / numbers already tuned
-
-Do not “fix” these without playing:
-
-- Player speed `0.64 * minDim` / s. Fire period `0.055` s. Max 8 bullets.
-- Grunt base `0.115 * minDim * gruntMul` plus `waveTime * 0.011` accel, cap `0.42`.
-- Hulk `0.085 * minDim`.
-- Invuln `2.05` s. Intro `1.35` s. Death wait `1.55` s. Trans `3.35` s.
-- Spheroid/Enforcer early-wave rates live on each `WAVES` row (see wave 2–4). A previous pass made Enforcers machine-gun; that was rolled back on purpose.
-
-`minDim = min(arena.w, arena.h)`. Arena is the full window minus HUD.
+- Player `0.64 * minDim`/s, fire `0.055` s, max 8 bullets, invuln `2.05` s.
+- Grunt `0.115 * minDim * gruntMul` + time accel.
+- Hulk `0.085`, Brain ~`0.068 * brainMul`, Tank ~`0.11 * tankMul`.
+- Intro `1.35` s, death `1.55` s, trans `3.35` s.
+- Enforcer/Spheroid/Tank rates are per-row on `WAVES` and were deliberately eased for waves 2–7.
 
 ## Debug
 
-- `?autostart` starts wave 1 after load.
-- `window.__game` — set `waveNum`, `buildWave()`, or `g.alive = false` on arrays to skip.
-- Headless Chrome + puppeteer-core was used against `localhost:8765` (server binds IPv6; use `localhost` not `127.0.0.1`).
+- `?autostart` — start wave 1 after load.
+- `window.__game` — `waveNum = 7; buildWave(); setState("intro")`.
+- Local server often binds IPv6; use `localhost` not `127.0.0.1`.
 
-## Next concrete task
+## Next session
 
-**Wave 7 — first Tank wave.** Quarks + Tanks + bouncing shells, 0 Grunts, 0 electrodes, 12 Hulks, 4 of each family. After that, data-drive waves 8–40 from the table in `requirements.md` §3.
+**Wave 8** (no new entities): 35 Grunts, 25 electrodes, 3 Mommy / 3 Daddy / 3 Mikey, 8 Hulks, 5 Spheroids.
 
-## Original references (behavior only)
+Then data-drive 9–40 from the table (grunt swarm 9, Brain Daddy 10, Tank 12, Hulk 14, …).
 
-- Wave counts: `WVCNT` in Williams `RRG23.ASM` (historicalsource/robotron). Matches `requirements.md` §3.
-- Sound tables: `LASSND`, `RBSND`, `SAVSND`, `PDSND`, `WVSND`, … in `RRG23.ASM` / `RRH11.ASM` / `RRP8.ASM` / `RRC11.ASM`.
-- VARI algorithm write-up: https://www.lomont.org/software/misc/robotron/ (reimplement; do not vendor ROM).
-- Wave-type overview: Sean Riddle `robowaves.html`.
+## References (spec only — do not vendor binaries)
 
-Use those as **spec**. Do not check their binaries into this repo.
+- `WVCNT` in Williams `RRG23.ASM` (historicalsource/robotron)
+- Sound tables in `RRG23.ASM` / `RRH11.ASM` / `RRP8.ASM` / `RRC11.ASM`
+- Lomont VARI: https://www.lomont.org/software/misc/robotron/
+- Sean Riddle wave notes: `robowaves.html`

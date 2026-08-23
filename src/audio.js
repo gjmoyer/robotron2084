@@ -199,6 +199,22 @@
       this._play("ui");
     },
 
+    tankFire(pan = 0) {
+      this._play("lite", pan);
+    },
+
+    tankBounce() {
+      this._play("ui");
+    },
+
+    tankDie(pan = 0) {
+      this.fire("cannon", pan);
+    },
+
+    quarkDie(pan = 0) {
+      this.spheroidDie(pan);
+    },
+
     hulkHit(pan = 0) {
       this.fire("ui", pan);
     },

@@ -81,8 +81,11 @@ Then go to [http://localhost:8765](http://localhost:8765) and press **F** for fu
 | **4** | 34 Grunts, 25 electrodes, 7 Hulks, the full family, 4 Spheroids |
 | **5** | 20 Grunts, 20 electrodes, 15 Brains, 15 Mommies, 1 Mikey, 1 Spheroid |
 | **6** | 32 Grunts, 25 electrodes, 7 Hulks, 3 of each family, 4 Spheroids |
+| **7** | 10 Quarks, Tanks, 12 Hulks, 4 of each family, no Grunts or electrodes |
 
-Hulks cannot be killed. Spheroids hatch Enforcers. Enforcers fill the screen with sparks. Kill the Spheroids first.
+Hulks cannot be killed. Spheroids hatch Enforcers; Quarks hatch Tanks. Kill the spawners first.
+
+Clearing wave 7 is the end of the **mapped** campaign for now — you get an *end of transmission* card, not a fake victory. More waves are still to be built.
 
 ---
 

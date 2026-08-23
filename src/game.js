@@ -12,7 +12,7 @@
 
   const HS_KEY = "robotron2084_hs";
   const HS_KEY_OLD = "robotron2084_wave1_hs";
-  const MAX_WAVE = 6;
+  const MAX_WAVE = 7;
 
   const WAVES = [
     null,
@@ -158,6 +158,36 @@
       sparkMul: 0.58,
       subtitle: "FAMILY IN THE CROSSFIRE",
     },
+    {
+      grunts: 0,
+      electrodes: 0,
+      mommy: 4,
+      daddy: 4,
+      mikey: 4,
+      hulks: 12,
+      spheroids: 0,
+      brains: 0,
+      quarks: 10,
+      electrodeStyle: "square",
+      electrodeHue: 28,
+      gruntMul: 1,
+      humans: 12,
+      hatchFirst: 2.2,
+      hatchNext: 1.35,
+      quotaMin: 2,
+      quotaMax: 3,
+      fireMin: 0.7,
+      fireMax: 1.15,
+      enforcerCap: 4,
+      enforcerMul: 0.75,
+      sparkMul: 0.5,
+      tankCap: 6,
+      tankFireMin: 1.35,
+      tankFireMax: 2.15,
+      tankMul: 0.55,
+      shellMul: 0.4,
+      subtitle: "TANK WAVE — CLEAR THE QUARKS",
+    },
   ];
 
   const SPRITE_URLS = {
@@ -195,6 +225,10 @@
     prog_s: "assets/sprites/prog_s.png",
     prog_s_w0: "assets/sprites/prog_s_w0.png",
     prog_s_w1: "assets/sprites/prog_s_w1.png",
+    tank_s: "assets/sprites/tank_s.png",
+    tank_e: "assets/sprites/tank_e.png",
+    tank_w: "assets/sprites/tank_w.png",
+    quark: "assets/sprites/quark.png",
     title: "assets/title.jpg",
     floor: "assets/floor.jpg",
   };
@@ -264,6 +298,9 @@
       this.brains = [];
       this.progs = [];
       this.missiles = [];
+      this.quarks = [];
+      this.tanks = [];
+      this.shells = [];
       this.electrodes = [];
       this.bullets = [];
       this.fireCd = 0;
@@ -326,7 +363,7 @@
 
     hostilesLeft() {
       const n = (arr) => arr.filter((e) => e.alive).length;
-      return n(this.grunts) + n(this.spheroids) + n(this.enforcers) + n(this.brains);
+      return n(this.grunts) + n(this.spheroids) + n(this.enforcers) + n(this.brains) + n(this.quarks) + n(this.tanks);
     }
 
     setState(s) {
@@ -348,6 +385,9 @@
       this.brains = [];
       this.progs = [];
       this.missiles = [];
+      this.quarks = [];
+      this.tanks = [];
+      this.shells = [];
       this.electrodes = [];
       this.bullets = [];
       this.fireCd = 0;
@@ -445,6 +485,25 @@
           vy: Math.sin(a),
           r: m * 0.028,
           hatch: rand(spec.hatchFirst * 0.7, spec.hatchFirst * 1.15),
+          quota: Math.floor(rand(spec.quotaMin, spec.quotaMax + 0.99)),
+          hatched: 0,
+          spawn: 0,
+          phase: Math.random() * 6,
+          pulse: 0,
+          alive: true,
+        });
+      }
+
+      for (let i = 0; i < (spec.quarks || 0); i++) {
+        const [qx, qy] = place(m * 0.06);
+        const a = rand(0.2, Math.PI * 2);
+        this.quarks.push({
+          x: qx,
+          y: qy,
+          vx: Math.cos(a),
+          vy: Math.sin(a),
+          r: m * 0.03,
+          hatch: rand(spec.hatchFirst * 0.75, spec.hatchFirst * 1.2),
           quota: Math.floor(rand(spec.quotaMin, spec.quotaMax + 0.99)),
           hatched: 0,
           spawn: 0,
@@ -599,6 +658,8 @@
       for (const e of this.enforcers) e.spawn = Math.min(1, e.spawn + dt * 2.2);
       for (const b of this.brains) b.spawn = Math.min(1, b.spawn + dt * 1.15);
       for (const p of this.progs) p.spawn = Math.min(1, p.spawn + dt * 2);
+      for (const q of this.quarks) q.spawn = Math.min(1, q.spawn + dt * 1.3);
+      for (const t of this.tanks) t.spawn = Math.min(1, t.spawn + dt * 1.8);
     }
 
     updateTrans(dt) {
@@ -655,6 +716,7 @@
       this.bullets = [];
       this.sparks = [];
       this.missiles = [];
+      this.shells = [];
       this.transBeat = 0;
       this.setState(STATE.TRANS);
     }
@@ -671,13 +733,16 @@
       this.updateBrains(dt);
       this.updateProgs(dt);
       this.updateMissiles(dt);
+      this.updateQuarks(dt);
+      this.updateTanks(dt);
+      this.updateShells(dt);
       this.updateBullets(dt);
       this.updateSparks(dt);
       this.collide();
 
       const live = this.hostilesLeft();
       const spec = this.waveSpec();
-      const denom = Math.max(1, spec.grunts);
+      const denom = Math.max(1, spec.grunts + (spec.quarks || 0) + spec.spheroids + (spec.brains || 0));
       AudioFX.setTension(clamp(this.waveTime / 38, 0, 1) * 0.55 + (1 - live / denom) * 0.2);
       if (live === 0) {
         if (this.waveNum < MAX_WAVE) this.beginTransition();
@@ -700,6 +765,9 @@
       this.updateBrains(dt * 0.2);
       this.updateProgs(dt * 0.2);
       this.updateMissiles(dt);
+      this.updateQuarks(dt * 0.25);
+      this.updateTanks(dt * 0.2);
+      this.updateShells(dt);
       this.updateSparks(dt);
       if (this.stateTime > 1.55) {
         if (this.lives > 0) {
@@ -1198,6 +1266,161 @@
       }
     }
 
+    tankCount() {
+      return this.tanks.filter((t) => t.alive).length;
+    }
+
+    spawnTank(x, y) {
+      const spec = this.waveSpec();
+      const a = rand(0, Math.PI * 2);
+      this.tanks.push({
+        x,
+        y,
+        vx: Math.cos(a),
+        vy: Math.sin(a),
+        r: this.minDim * 0.032,
+        face: facingFrom(Math.cos(a), Math.sin(a)),
+        think: rand(0.6, 1.4),
+        fire: rand(spec.tankFireMin || 1.4, spec.tankFireMax || 2.2),
+        spawn: 0,
+        alive: true,
+      });
+      AudioFX.hatchPop();
+      FX.ring(x, y, "#ffe56a", 0.3);
+      FX.burst(x, y, "#ffb040", 10, 160, 2.2, 0.25);
+    }
+
+    updateQuarks(dt) {
+      const spec = this.waveSpec();
+      const speed = this.minDim * 0.17;
+      const { x, y, w, h } = this.arena;
+      const head = this.minDim * 0.1;
+      const cap = spec.tankCap || 6;
+      for (const q of this.quarks) {
+        if (!q.alive) continue;
+        const wave = Math.sin(this.time * 2.6 + q.phase) * 0.4;
+        const px = -q.vy;
+        const py = q.vx;
+        q.x += (q.vx + px * wave) * speed * dt;
+        q.y += (q.vy + py * wave) * speed * dt;
+        if (q.x < x + 24) {
+          q.x = x + 24;
+          q.vx = Math.abs(q.vx);
+        }
+        if (q.x > x + w - 24) {
+          q.x = x + w - 24;
+          q.vx = -Math.abs(q.vx);
+        }
+        if (q.y < y + 24 + head) {
+          q.y = y + 24 + head;
+          q.vy = Math.abs(q.vy);
+        }
+        if (q.y > y + h - 24) {
+          q.y = y + h - 24;
+          q.vy = -Math.abs(q.vy);
+        }
+        q.pulse = Math.max(0, q.pulse - dt);
+        if (q.spawn < 1 || this.state !== STATE.PLAY) continue;
+        q.hatch -= dt;
+        if (q.hatch <= 0.25) q.pulse = Math.max(q.pulse, 0.22);
+        if (q.hatch <= 0) {
+          if (this.tankCount() >= cap) {
+            q.hatch = 0.2;
+            continue;
+          }
+          this.spawnTank(q.x, q.y);
+          q.hatched += 1;
+          q.pulse = 0.18;
+          if (q.hatched >= q.quota) {
+            q.alive = false;
+            FX.burst(q.x, q.y, "#b6ff40", 16, 200, 2.6, 0.3);
+          } else {
+            q.hatch = rand(spec.hatchNext * 0.8, spec.hatchNext * 1.25);
+          }
+        }
+      }
+    }
+
+    updateTanks(dt) {
+      const spec = this.waveSpec();
+      const speed = this.minDim * 0.11 * (spec.tankMul || 0.55);
+      const m = this.minDim;
+      for (const t of this.tanks) {
+        if (!t.alive) continue;
+        t.think -= dt;
+        if (t.think <= 0) {
+          if (this.player && this.player.alive && Math.random() < 0.55) {
+            const [nx, ny] = norm(this.player.x - t.x, this.player.y - t.y);
+            t.vx = nx;
+            t.vy = ny;
+          } else {
+            const a = Math.random() * Math.PI * 2;
+            t.vx = Math.cos(a);
+            t.vy = Math.sin(a);
+          }
+          t.think = rand(0.7, 1.6);
+        }
+        t.x += t.vx * speed * dt;
+        t.y += t.vy * speed * dt;
+        this.clampEntity(t);
+        t.face = facingFrom(t.vx, t.vy);
+        t.fire -= dt;
+        if (this.state === STATE.PLAY && t.fire <= 0 && this.shells.length < 10 && this.player && this.player.alive) {
+          t.fire = rand(spec.tankFireMin || 1.4, spec.tankFireMax || 2.2);
+          const jitter = m * 0.06;
+          const tx = this.player.x + (Math.random() - 0.5) * jitter;
+          const ty = this.player.y + (Math.random() - 0.5) * jitter;
+          const [ax, ay] = norm(tx - t.x, ty - t.y);
+          const spd = m * (spec.shellMul || 0.4);
+          this.shells.push({
+            x: t.x + ax * m * 0.04,
+            y: t.y - m * 0.02 + ay * m * 0.03,
+            vx: ax * spd,
+            vy: ay * spd,
+            r: m * 0.012,
+            life: 3.4,
+            bounces: 0,
+          });
+          AudioFX.tankFire(((t.x - this.arena.x) / this.arena.w) * 2 - 1);
+        }
+      }
+    }
+
+    updateShells(dt) {
+      const { x, y, w, h } = this.arena;
+      const pad = 10;
+      for (let i = this.shells.length - 1; i >= 0; i--) {
+        const s = this.shells[i];
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.life -= dt;
+        let bounced = false;
+        if (s.x < x + pad) {
+          s.x = x + pad;
+          s.vx = Math.abs(s.vx);
+          bounced = true;
+        } else if (s.x > x + w - pad) {
+          s.x = x + w - pad;
+          s.vx = -Math.abs(s.vx);
+          bounced = true;
+        }
+        if (s.y < y + pad) {
+          s.y = y + pad;
+          s.vy = Math.abs(s.vy);
+          bounced = true;
+        } else if (s.y > y + h - pad) {
+          s.y = y + h - pad;
+          s.vy = -Math.abs(s.vy);
+          bounced = true;
+        }
+        if (bounced) {
+          s.bounces += 1;
+          AudioFX.tankBounce();
+        }
+        if (s.life <= 0 || s.bounces >= 4) this.shells.splice(i, 1);
+      }
+    }
+
     collide() {
       const p = this.player;
       const panOf = (e) => ((e.x - this.arena.x) / this.arena.w) * 2 - 1;
@@ -1314,6 +1537,47 @@
               hit = true;
               this.addScore(25, ms.x, ms.y, "25");
               FX.burst(ms.x, ms.y, "#a070ff", 10, 180, 2.2, 0.22);
+              break;
+            }
+          }
+        }
+        if (!hit) {
+          for (const q of this.quarks) {
+            if (!q.alive) continue;
+            if (Math.hypot(b.x - q.x, b.y - q.y) < q.r + b.r) {
+              q.alive = false;
+              hit = true;
+              this.addScore(1000, q.x, q.y, "1000");
+              AudioFX.quarkDie(panOf(q));
+              FX.burst(q.x, q.y, "#b6ff40", 28, 320, 3.6, 0.45);
+              FX.ring(q.x, q.y, "#e8ff80", 0.35);
+              FX.addShake(5);
+              break;
+            }
+          }
+        }
+        if (!hit) {
+          for (const tk of this.tanks) {
+            if (!tk.alive) continue;
+            if (Math.hypot(b.x - tk.x, b.y - (tk.y - tk.r * 0.4)) < tk.r + b.r) {
+              tk.alive = false;
+              hit = true;
+              this.addScore(200, tk.x, tk.y, "200");
+              AudioFX.tankDie(panOf(tk));
+              FX.burst(tk.x, tk.y, "#ff9a3a", 24, 280, 3.2, 0.4);
+              FX.ring(tk.x, tk.y, "#ffe56a", 0.28);
+              break;
+            }
+          }
+        }
+        if (!hit) {
+          for (let si = this.shells.length - 1; si >= 0; si--) {
+            const sh = this.shells[si];
+            if (Math.hypot(b.x - sh.x, b.y - sh.y) < sh.r + b.r + 3) {
+              this.shells.splice(si, 1);
+              hit = true;
+              this.addScore(25, sh.x, sh.y, "25");
+              FX.burst(sh.x, sh.y, "#ffb040", 8, 150, 2, 0.2);
               break;
             }
           }
@@ -1495,6 +1759,26 @@
           return;
         }
       }
+      for (const q of this.quarks) {
+        if (!q.alive) continue;
+        if (Math.hypot(p.x - q.x, bodyY - q.y) < p.r + q.r) {
+          this.killPlayer();
+          return;
+        }
+      }
+      for (const tk of this.tanks) {
+        if (!tk.alive) continue;
+        if (Math.hypot(p.x - tk.x, bodyY - (tk.y - tk.r * 0.3)) < p.r + tk.r * 0.8) {
+          this.killPlayer();
+          return;
+        }
+      }
+      for (const sh of this.shells) {
+        if (Math.hypot(p.x - sh.x, bodyY - sh.y) < p.r + sh.r) {
+          this.killPlayer();
+          return;
+        }
+      }
     }
 
     cancelConvert(brain) {
@@ -1540,6 +1824,7 @@
       this.bullets = [];
       this.sparks = [];
       this.missiles = [];
+      this.shells = [];
       for (const e of this.enforcers) e.alive = false;
       AudioFX.playerDie();
       Input.rumble(220, 0.6, 1);
@@ -1576,6 +1861,11 @@
       if (kind === "prog") {
         if (walking) return frame % 2 === 0 ? s.prog_s_w0 : s.prog_s_w1;
         return s.prog_s;
+      }
+      if (kind === "tank") {
+        if (face === "e") return s.tank_e;
+        if (face === "w") return s.tank_w;
+        return s.tank_s;
       }
       const base = kind;
       if (face === "e") return s[base + "_e"];
@@ -1709,7 +1999,7 @@
 
       ctx.fillStyle = "#ffe56a";
       ctx.font = "700 20px Orbitron, sans-serif";
-      ctx.fillText("WAVES 1–6", w / 2, h * 0.18 + Math.min(118, w * 0.095));
+      ctx.fillText("WAVES 1–7", w / 2, h * 0.18 + Math.min(118, w * 0.095));
 
       ctx.fillStyle = "rgba(255,255,255,0.82)";
       ctx.font = "16px 'Share Tech Mono', monospace";
@@ -1827,6 +2117,12 @@
       for (const g of this.progs) {
         if (g.alive) drawables.push({ z: g.y, kind: "prog", e: g });
       }
+      for (const q of this.quarks) {
+        if (q.alive) drawables.push({ z: q.y, kind: "quark", e: q });
+      }
+      for (const t of this.tanks) {
+        if (t.alive) drawables.push({ z: t.y, kind: "tank", e: t });
+      }
       if (this.player && this.player.alive) {
         drawables.push({ z: this.player.y, kind: "player", e: this.player });
       }
@@ -1835,6 +2131,7 @@
       this.renderBullets(ctx);
       this.renderSparks(ctx);
       this.renderMissiles(ctx);
+      this.renderShells(ctx);
 
       for (const d of drawables) {
         if (d.kind === "electrode") this.renderElectrode(ctx, d.e);
@@ -1879,6 +2176,13 @@
             ctx.stroke();
             ctx.restore();
           }
+        }
+        if (d.kind === "quark") this.renderQuark(ctx, d.e);
+        if (d.kind === "tank") {
+          const t = d.e;
+          this.drawShadow(ctx, t.x, t.y, m * 0.034, m * 0.012);
+          const img = this.spriteFor("tank", t.face, true, 0);
+          this.drawSprite(ctx, img, t.x, t.y, m * 0.1, t.spawn, 1, 0);
         }
         if (d.kind === "prog") {
           const g = d.e;
@@ -2058,6 +2362,33 @@
       ctx.arc(0, 0, s * 0.38, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+    }
+
+    renderQuark(ctx, q) {
+      const img = this.sprites.quark;
+      const m = this.minDim;
+      const windup = q.hatch < 0.28 && q.alive ? 1 + (0.28 - q.hatch) * 1.8 : 1;
+      const h = m * 0.07 * (1 + q.pulse * 0.35) * windup;
+      this.drawShadow(ctx, q.x, q.y, h * 0.45, h * 0.16);
+      this.drawSprite(ctx, img, q.x, q.y + h * 0.15, h, q.spawn, 1, Math.sin(this.time * 4 + q.phase) * m * 0.006);
+    }
+
+    renderShells(ctx) {
+      for (const s of this.shells) {
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.fillStyle = "#ffb040";
+        ctx.shadowColor = "#ff8020";
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.rect(-s.r * 1.2, -s.r * 1.2, s.r * 2.4, s.r * 2.4);
+        ctx.fill();
+        ctx.fillStyle = "#fff3c0";
+        ctx.beginPath();
+        ctx.arc(0, 0, s.r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     renderMissiles(ctx) {
@@ -2287,10 +2618,16 @@
         ctx.fillStyle = "#c77bff";
         ctx.fillText(`BRAINS ${String(brn).padStart(2, "0")}`, sph || enf ? 560 : 430, 54);
       }
+      const qrk = this.quarks.filter((q) => q.alive).length;
+      const tnk = this.tankCount();
+      if (qrk || tnk) {
+        ctx.fillStyle = "#ffe56a";
+        ctx.fillText(`QRK ${qrk}  TNK ${tnk}`, brn ? 680 : sph || enf ? 560 : 430, 54);
+      }
 
       if (Input.padCount) {
         ctx.fillStyle = "#7ef6ff";
-        const px = brn ? 680 : sph || enf ? 580 : 430;
+        const px = qrk || tnk ? 720 : brn ? 680 : sph || enf ? 580 : 430;
         ctx.fillText(Input.dualPad ? "DUAL JOY" : "PAD", px, 54);
         this.drawStickGizmo(ctx, px + 70, 44, Input.moveX, Input.moveY, "#7ef6ff");
         this.drawStickGizmo(ctx, px + 108, 44, Input.shootX, Input.shootY, "#ff2bd6");

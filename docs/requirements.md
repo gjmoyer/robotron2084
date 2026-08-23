@@ -164,39 +164,35 @@ On wave complete the original: increments wave number, plays `WVSND` (command `$
 
 ## 7. Entity behavior (what to implement)
 
-### Implemented (waves 1–4)
+### Implemented (waves 1–7)
 
 | Entity | Touch player | Shot | Electrode | Notes |
 |--------|--------------|------|-----------|--------|
-| **Grunt** | kill | 100, dies | dies, no score | Chases player. Speed = base × `gruntMul` + time accel (stall punishment). Light separation so they do not stack. |
-| **Electrode** | kill | 0, destroyed | — | Static. Wave style: plus / diamond / square / x. Color via `electrodeHue`. |
-| **Hulk** | kill | immune (flash + thud) | immune | Slow. Prefers nearest living human, else wanders. Indestructible. |
-| **Mommy / Daddy / Mikey** | rescue | immune | dies | Wander. Mikey is smaller. |
-| **Spheroid** | kill | 1000 | dies | Wavy bounce. First hatch after `hatchFirst` s, then every `hatchNext`. Quota `quotaMin`–`quotaMax` then vanishes (no 1000). Global Enforcer cap `enforcerCap`. **Priority target.** |
-| **Enforcer** | kill | 150 | dies | Hatched by Spheroids. Weaves toward player. Fires pinwheel sparks at `fireMin`–`fireMax`. |
-| **Spark** | kill | 25 | n/a | Fast-ish, slides on walls, lifetime ~1.7 s, max ~12 on screen. |
+| **Grunt** | kill | 100, dies | dies, no score | Chases player. Speed = base × `gruntMul` + time accel. |
+| **Electrode** | kill | 0, destroyed | — | Static. Styles: plus / diamond / square / x. |
+| **Hulk** | kill | immune (flash + thud) | immune | Slow. Prefers nearest living human. |
+| **Mommy / Daddy / Mikey** | rescue | immune | dies | Wander. Mikey is smaller. Snatch mid-Brain-convert still counts as rescue. |
+| **Spheroid** | kill | 1000 | dies | Hatches Enforcers; quota then vanishes (0 pts). |
+| **Enforcer** | kill | 150 | dies | Weaves; pinwheel sparks. Early-wave fire is **mild** on purpose. |
+| **Spark** | kill | 25 | n/a | Slides on walls. |
+| **Brain** | kill | 500 | dies | Seeks humans, converts (~1.65 s), fires homing cruise missiles (max 6). |
+| **Prog** | kill | 100 | dies | Converted human. Does **not** block wave-end. |
+| **Cruise missile** | kill | 25 | n/a | Homing, limited turn. |
+| **Quark** | kill | 1000 | n/a (none on tank waves) | Hatches Tanks; quota then vanishes. |
+| **Tank** | kill | 200 | n/a | Slow; fires bouncing square shells. Cap `tankCap`. |
+| **Tank shell** | kill | 25 | n/a | Ricochets up to 4 times. |
 
-Spheroid / Enforcer tuning for early waves is **intentionally milder** than late arcade. Do not restore the old “machine-gun / 8-cap / 0.1 s fire” values for waves 2–4. Ramp on later waves only.
+Spheroid / Enforcer / Tank fire rates for waves 2–7 are **intentionally milder** than late arcade. Do not restore machine-gun values.
 
-### Not implemented (needed from wave 5 on)
+### Not implemented (wave 8+)
 
-**Brain** (wave 5, then every 5th). Slow walker. Seeks humans. On contact starts **reprogramming** (~1–2 s): play `human-to-prog`, then `prog-transformation`; human becomes a **Prog**. Also fires **cruise missiles** that home on the player (25–50 pts if shot). Brain is 500. First Brain waves have **zero Hulks** and a huge human pile — the puzzle is save vs. convert.
+Special layouts still to data-drive from §3:
 
-**Prog.** Converted human. Chases the player like a dim Grunt. 100 pts. Does not block wave-end.
-
-**Cruise missile.** Homing projectile from Brains. Shot for 25–50. Kills player on contact.
-
-**Quark** (wave 7+). Spheroid analog for Tanks. Bounces, spawns Tanks, 1000 pts. `quark-spawn` / death sounds.
-
-**Tank.** Spawned by Quarks. Fires **shells that bounce off walls**. 200 pts. Tank waves (`7, 12, 17…`) have **0 Grunts and 0 electrodes** — the floor is open, Hulks + Quarks + Tanks + family.
-
-**Tank shell.** Ricochets. Shot for 25–50. Lethal. Bounce sound.
-
-**Grunt Swarm** (waves ending in 9). 60–80 Grunts, **0 electrodes**, player starts center. Fewer Hulks. Speed pressure is the point.
-
-**Hulk wave** (14, 34, …). 20–25 Hulks packed around the player. Almost no shooting puzzle — pathing and family rescue.
-
-**Double Trouble** (24, 44, …). 0 Grunts, 0 electrodes, many Spheroids **and** Quarks at once.
+- **Grunt Swarm** (9, 19, 29…) — 60–80 Grunts, 0 electrodes.
+- **Hulk wave** (14, 34…) — 20–25 Hulks around the player.
+- **Double Trouble** (24, 44…) — Spheroids **and** Quarks together, 0 Grunts, 0 electrodes.
+- Later Brain / Tank waves reuse existing Brain and Tank systems with bigger counts.
+- Attract mode, 2-player alternate, high-score initials, Bozo mercy.
 
 ---
 
@@ -275,12 +271,13 @@ Unofficial fan remake. Not affiliated with Williams, Vid Kidz, Midway, or Warner
 
 ## 12. Suggested build order from here
 
-1. **Wave 5 — first Brain wave.** Brains, reprogramming, Progs, cruise missiles, 15 Mommies + 1 Mikey, 0 Hulks, 1 Spheroid. This is the next *real* systems drop.
-2. Wave 6 (normal, denser).
-3. **Wave 7 — first Tank wave.** Quarks + Tanks + bouncing shells, 0 Grunts, 0 electrodes.
-4. Generalize `WAVES[]` from the §3 table through wave 40, then 21–40 wrap with a difficulty multiplier.
-5. Attract mode, 2-player alternate, initials on high score, operator extra-life options.
-6. Optional Bozo mercy on waves 1–4.
+Waves **1–7** and all of their unique systems (Brain, Prog, missile, Quark, Tank, shell) are in. Next:
+
+1. **Wave 8** — normal (35 Grunts, 25 electrodes, 8 Hulks, 5 Spheroids, 3 of each family). No new entities.
+2. Data-drive **waves 9–40** from the §3 table (grunt swarm, Brain Daddy, more Tank waves, Hulk wave, Double Trouble).
+3. After wave 40, wrap 21–40 with a difficulty multiplier through 255.
+4. Attract mode, 2-player alternate, initials on high score, operator extra-life options.
+5. Optional Bozo mercy on waves 1–4.
 
 ---
 
