@@ -34,7 +34,7 @@
 
   const Prefs = {
     key: "robotron2084_prefs_v1",
-    data: { autofire: false, muted: false, lowfx: false, scanlines: true, difficulty: "arcade" },
+    data: { autofire: false, muted: false, lowfx: false, scanlines: true, difficulty: "arcade", extraLifeEvery: 25000, startLives: 3, freePlay: true, arcadeSpawn: true },
     load() {
       try {
         const raw = localStorage.getItem(this.key);
@@ -42,6 +42,12 @@
       } catch (_) {}
       // migrate old scanline pref if lowfx on
       if (this.data.lowfx) this.data.scanlines = false;
+      // sanitize operator fields (old saves lack them)
+      const validExtras = [20000, 25000, 30000, 50000, 0];
+      if (!validExtras.includes(this.data.extraLifeEvery)) this.data.extraLifeEvery = 25000;
+      if (![3, 5].includes(this.data.startLives)) this.data.startLives = 3;
+      if (typeof this.data.freePlay !== "boolean") this.data.freePlay = true;
+      if (typeof this.data.arcadeSpawn !== "boolean") this.data.arcadeSpawn = true;
       return this.data;
     },
     save() {
@@ -88,9 +94,25 @@
     startEdge: false,
     pauseEdge: false,
     dashEdge: false,
+    coinEdge: false,
+    onePEdge: false,
+    twoPEdge: false,
+    operatorEdge: false,
+    upEdge: false,
+    downEdge: false,
+    leftEdge: false,
+    rightEdge: false,
     _startWas: false,
     _pauseWas: false,
     _dashWas: false,
+    _coinWas: false,
+    _onePWas: false,
+    _twoPWas: false,
+    _operatorWas: false,
+    _upWas: false,
+    _downWas: false,
+    _leftWas: false,
+    _rightWas: false,
     _lastTapT: 0,
     _lastTapX: 0,
     _lastTapY: 0,
@@ -106,6 +128,7 @@
         this.keys[e.code] = true;
         if (e.code === "Space" || e.code === "Enter") this.startLatch = true;
         if (e.code === "Escape" || e.code === "KeyP") this.pauseLatch = true;
+        if (e.code === "KeyC" || e.code === "Digit5") this._coinKey = true;
         // playability toggles (work anywhere, no repeat)
         if (e.code === "KeyM") this.togglePref("muted");
         if (e.code === "KeyT") this.togglePref("autofire");
@@ -176,6 +199,10 @@
     },
 
     rumble(ms = 40, weak = 0.2, strong = 0.35) {
+      try {
+        const g = window.__game;
+        if (g && (g.demoMode || g.state === "attract")) return;
+      } catch (_) {}
       for (const pad of this.pads()) {
         const act = pad.vibrationActuator;
         if (act && act.playEffect) {
@@ -211,6 +238,48 @@
     consumeDash() {
       if (this.dashEdge) {
         this.dashEdge = false;
+        return true;
+      }
+      return false;
+    },
+
+    consumeCoin() {
+      if (this.coinEdge || this._coinKey) {
+        this.coinEdge = false;
+        this._coinKey = false;
+        return true;
+      }
+      return false;
+    },
+
+    consume1P() {
+      if (this.onePEdge) {
+        this.onePEdge = false;
+        return true;
+      }
+      return false;
+    },
+
+    consume2P() {
+      if (this.twoPEdge) {
+        this.twoPEdge = false;
+        return true;
+      }
+      return false;
+    },
+
+    consumeOperator() {
+      if (this.operatorEdge) {
+        this.operatorEdge = false;
+        return true;
+      }
+      return false;
+    },
+
+    consumeMenu(dir) {
+      const k = dir + "Edge";
+      if (this[k]) {
+        this[k] = false;
         return true;
       }
       return false;
@@ -290,11 +359,26 @@
       let start = !!(this.keys.Space || this.keys.Enter || this.keys.KeyF);
       let pause = !!(this.keys.Escape || this.keys.KeyP);
       let dash = !!(this.keys.ShiftLeft || this.keys.ShiftRight);
+      let coin = !!(this.keys.KeyC || this.keys.Digit5 || this._coinKey);
+      let oneP = !!(this.keys.Digit1);
+      let twoP = !!(this.keys.Digit2);
+      let oper = !!(this.keys.KeyO || this.keys.F2);
+      let up = !!(this.keys.ArrowUp || this.keys.KeyW);
+      let down = !!(this.keys.ArrowDown || this.keys.KeyS);
+      let left = !!(this.keys.ArrowLeft || this.keys.KeyA);
+      let right = !!(this.keys.ArrowRight || this.keys.KeyD);
       for (const pad of pads) {
         if (pad.buttons[0]?.pressed || pad.buttons[9]?.pressed) start = true;
         if (pad.buttons[8]?.pressed) pause = true;
         // LB / RB / stick-clicks = dash; left/right triggers stay analog-free
         if (pad.buttons[4]?.pressed || pad.buttons[5]?.pressed || pad.buttons[10]?.pressed || pad.buttons[11]?.pressed) dash = true;
+        if (pad.buttons[3]?.pressed) twoP = true; // Y = 2P start
+        if (pad.buttons[2]?.pressed) coin = true; // X = coin
+        const hat = hatToVec(pad);
+        if (hat[1] < 0) up = true;
+        if (hat[1] > 0) down = true;
+        if (hat[0] < 0) left = true;
+        if (hat[0] > 0) right = true;
       }
       if (this._doubleTapDash) {
         dash = true;
@@ -303,9 +387,27 @@
       this.startEdge = start && !this._startWas;
       this.pauseEdge = pause && !this._pauseWas;
       this.dashEdge = dash && !this._dashWas;
+      this.coinEdge = coin && !this._coinWas;
+      this.onePEdge = (oneP || (start && !twoP)) && !this._onePWas;
+      // twoP only on explicit 2P key (avoid Space triggering both)
+      this.twoPEdge = twoP && !this._twoPWas;
+      this.operatorEdge = oper && !this._operatorWas;
+      this.upEdge = up && !this._upWas;
+      this.downEdge = down && !this._downWas;
+      this.leftEdge = left && !this._leftWas;
+      this.rightEdge = right && !this._rightWas;
       this._startWas = start;
       this._pauseWas = pause;
       this._dashWas = dash;
+      this._coinWas = coin;
+      this._coinKey = false;
+      this._onePWas = oneP || start;
+      this._twoPWas = twoP;
+      this._operatorWas = oper;
+      this._upWas = up;
+      this._downWas = down;
+      this._leftWas = left;
+      this._rightWas = right;
     },
   };
 

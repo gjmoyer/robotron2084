@@ -67,11 +67,16 @@ Then go to [http://localhost:8765](http://localhost:8765) and press **F** for fu
 | **Keyboard** | WASD | Arrow keys or IJKL |
 | **Mouse** | — | Click toggles sticky aim, move to steer, right-click clears |
 
-**Start** — Space, Enter, click, or gamepad A / Start  
+**Start** — Space / Enter / click = 1P, `2` or pad Y = 2P alternating, gamepad A / Start = 1P  
+**Coin** — `C` / `5` / pad X (only needed when FREE PLAY is OFF in operator menu)  
+**Operator** — `O` / F2 on title, pause, or game over: extra-life every 20k/25k/30k/50k/OFF, starting lives 3/5, free play, arcade spawn  
+**Hiscores** — top 10 with 3-letter initials, persists in browser; `H` in operator wipes  
 **Dash** — Shift, gamepad LB / RB (or stick-click), or double-tap WASD — 0.18s burst + i-frames, 2.5s cooldown  
 **Pause** — Esc (shows controls + options)  
 **Fullscreen** — F  
 **T** — Autofire (keeps firing last direction) · **E** — Easy / Arcade · **M** — Mute · **V** — Low-FX (less shake/flash) · **N** — Scanlines on/off
+
+Title idles 12s into attract demo. Swarm waves 9/19/29/39 + Double Trouble 24 have open borders. Waves 1–4 ease up (Bozo) after 2+ deaths. Extra lives repeat per operator setting. Shells score 50, sparks/missiles 25.
 
 Touch a human to save — chain 1000 → 2000 → 3000 → 4000 → 5000. Green Hulks can't be killed. Orange shots are always enemy. `HELP!` means a Brain is converting someone.
 

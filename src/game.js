@@ -24,10 +24,15 @@
     OVER: "over",
     PAUSE: "pause",
     TRANS: "trans",
+    ATTRACT: "attract",
+    OPERATOR: "operator",
+    ENTRY: "entry",
   };
 
   const HS_KEY = "robotron2084_hs";
   const HS_KEY_OLD = "robotron2084_wave1_hs";
+  const HISTAB_KEY = "robotron2084_hiscores_v1";
+  const CRED_KEY = "robotron2084_credits_v1";
   const MAX_WAVE = 255;
   // Waves 1-40 are unique. Past 40, the 21-40 block repeats (41->21, …)
   // with a per-cycle intensity ramp, through 255, then wraps to 1.
@@ -1101,6 +1106,15 @@
     },
   ];
 
+  // Arcade-authentic open borders: Grunt swarms (9/19/29/39) + Double Trouble
+  // (24) shipped without energy walls. Gameplay clamp stays (screen edge still
+  // blocks) — only the wall rendering + electrode-border feel goes away.
+  try {
+    for (const n of [9, 19, 24, 29, 39]) {
+      if (WAVES[n]) WAVES[n].openBorder = true;
+    }
+  } catch (_) {}
+
   const SPRITE_URLS = {
     player_s: "assets/sprites/player_s.png",
     player_s_w0: "assets/sprites/player_s_w0.png",
@@ -1199,8 +1213,29 @@
       this.totalRescued = 0;
       this.waveNum = 1;
       this.extraAwarded = 0;
+      this.nextExtraAt = 25000;
       this.isNewBest = false;
       this.hadBest = Number(localStorage.getItem(HS_KEY) || localStorage.getItem(HS_KEY_OLD) || 0) > 0;
+      // --- arcade systems: credits / 2P / hiscores / operator / attract / bozo
+      this.credits = Number(localStorage.getItem(CRED_KEY) || 0) || 0;
+      this.numPlayers = 1;
+      this.activePlayer = 0;
+      this.players = null; // 2P slots [{score,lives,waveNum,humanChain,totalRescued,nextExtraAt,rescued}]
+      this.deaths = 0; // session deaths (Bozo mercy input)
+      this.hiscores = this.loadHiscores();
+      if (this.hiscores.length && this.hiscores[0].score > this.high) {
+        this.high = this.hiscores[0].score;
+      }
+      this.titleIdle = 0;
+      this.attractDemo = null;
+      this.operatorRow = 0;
+      this.entryInitials = ["A", "A", "A"];
+      this.entryPos = 0;
+      this.entryScore = 0;
+      this.entryWave = 1;
+      this.entryQueue = []; // pending 2P entries [{score,wave,player}]
+      this.entryPlayerIdx = 0;
+      this.demoMode = false;
       this.player = null;
       this.grunts = [];
       this.humans = [];
@@ -1255,20 +1290,168 @@
       this.floorPat = null;
     }
 
-    startGame() {
-      this.score = 0;
-      this.lives = 3;
-      this.humanChain = 0;
-      this.rescued = 0;
-      this.totalRescued = 0;
-      this.waveNum = 1;
-      this.extraAwarded = 0;
+    startGame(numPlayers = 1) {
+      const prefs = (window.Input && window.Input.prefs) || {};
+      // credits: free-play skips, otherwise consume one
+      if (!prefs.freePlay) {
+        if (this.credits <= 0) {
+          AudioFX.ui();
+          return false;
+        }
+        this.credits -= 1;
+        try {
+          localStorage.setItem(CRED_KEY, String(this.credits));
+        } catch (_) {}
+      }
+      try {
+        if (window.Input) {
+          window.Input.startEdge = false;
+          window.Input.onePEdge = false;
+          window.Input.twoPEdge = false;
+          window.Input._clickStart = false;
+          window.Input.startLatch = false;
+        }
+      } catch (_) {}
+      this.numPlayers = numPlayers === 2 ? 2 : 1;
+      this.activePlayer = 0;
+      const startLives = prefs.startLives === 5 ? 5 : 3;
+      const firstExtra = prefs.extraLifeEvery === undefined ? 25000 : prefs.extraLifeEvery;
+      if (this.numPlayers === 2) {
+        this.players = [
+          { score: 0, lives: startLives, waveNum: 1, humanChain: 0, totalRescued: 0, rescued: 0, nextExtraAt: firstExtra || 0, extraAwarded: 0 },
+          { score: 0, lives: startLives, waveNum: 1, humanChain: 0, totalRescued: 0, rescued: 0, nextExtraAt: firstExtra || 0, extraAwarded: 0 },
+        ];
+        this.loadPlayerSlot(0);
+      } else {
+        this.players = null;
+        this.score = 0;
+        this.lives = startLives;
+        this.humanChain = 0;
+        this.rescued = 0;
+        this.totalRescued = 0;
+        this.waveNum = 1;
+        this.nextExtraAt = firstExtra || 0;
+        this.extraAwarded = 0;
+      }
+      this.deaths = 0;
       this.isNewBest = false;
       this.waveTime = 0;
+      this.demoMode = false;
       FX.reset();
       this.buildWave();
       this.setState(STATE.INTRO);
       AudioFX.waveStart();
+      return true;
+    }
+
+    // --- per-player slots (2P alternate) ---
+    savePlayerSlot(i) {
+      if (!this.players || !this.players[i]) return;
+      const s = this.players[i];
+      s.score = this.score;
+      s.lives = this.lives;
+      s.waveNum = this.waveNum;
+      s.humanChain = this.humanChain;
+      s.totalRescued = this.totalRescued;
+      s.rescued = this.rescued;
+      s.nextExtraAt = this.nextExtraAt;
+      s.extraAwarded = this.extraAwarded;
+    }
+
+    loadPlayerSlot(i) {
+      const s = this.players[i];
+      if (!s) return;
+      this.activePlayer = i;
+      this.score = s.score;
+      this.lives = s.lives;
+      this.waveNum = s.waveNum;
+      this.humanChain = s.humanChain;
+      this.totalRescued = s.totalRescued;
+      this.rescued = s.rescued || 0;
+      this.nextExtraAt = s.nextExtraAt;
+      this.extraAwarded = s.extraAwarded || 0;
+      this.isNewBest = this.score > 0 && this.score >= this.high;
+    }
+
+    otherPlayerAlive() {
+      if (this.numPlayers !== 2 || !this.players) return false;
+      const o = this.activePlayer === 0 ? 1 : 0;
+      return this.players[o].lives > 0;
+    }
+
+    // --- credits ---
+    addCredit() {
+      this.credits = Math.min(99, this.credits + 1);
+      try {
+        localStorage.setItem(CRED_KEY, String(this.credits));
+      } catch (_) {}
+      AudioFX.coin();
+    }
+
+    // --- high-score table (10 entries, 3-letter initials) ---
+    loadHiscores() {
+      try {
+        const raw = localStorage.getItem(HISTAB_KEY);
+        if (raw) {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) return arr.filter((e) => e && typeof e.score === "number").slice(0, 10);
+        }
+      } catch (_) {}
+      // migrate legacy single high
+      const legacy = Number(localStorage.getItem(HS_KEY) || localStorage.getItem(HS_KEY_OLD) || 0);
+      if (legacy > 0) return [{ name: "AAA", score: legacy, wave: 1 }];
+      return [];
+    }
+
+    saveHiscores() {
+      try {
+        localStorage.setItem(HISTAB_KEY, JSON.stringify(this.hiscores.slice(0, 10)));
+      } catch (_) {}
+      if (this.hiscores.length && this.hiscores[0].score > this.high) {
+        this.high = this.hiscores[0].score;
+        try {
+          localStorage.setItem(HS_KEY, String(this.high));
+        } catch (_) {}
+      }
+    }
+
+    qualifiesForHiscore(score) {
+      if (!(score > 0)) return false;
+      if (this.hiscores.length < 10) return true;
+      return score > this.hiscores[this.hiscores.length - 1].score;
+    }
+
+    insertHiscore(name, score, wave) {
+      this.hiscores.push({ name: (name || "AAA").toUpperCase().slice(0, 3), score, wave });
+      this.hiscores.sort((a, b) => b.score - a.score);
+      this.hiscores = this.hiscores.slice(0, 10);
+      this.saveHiscores();
+    }
+
+    // --- Bozo early-wave mercy (waves 1-4, after 2+ deaths with ships left) ---
+    bozoActive() {
+      if (this.demoMode) return false;
+      if (this.waveNum < 1 || this.waveNum > 4) return false;
+      if (this.deaths < 2) return false;
+      if (this.lives < 1) return false;
+      return true;
+    }
+
+    bozoGruntFactor() {
+      // ROM table: W1 ROBSPD 30 vs 20, W2 25 vs 15, W3 20 vs 15, W4 15 vs 15
+      if (this.waveNum === 1) return 20 / 30;
+      if (this.waveNum === 2) return 15 / 25;
+      if (this.waveNum === 3) return 15 / 20;
+      return 1;
+    }
+
+    bozoFireMul() {
+      // ENSTIM bozo vs normal: W1 96/30, W2 96/28, W3 48/26, W4 30/24
+      if (this.waveNum === 1) return 96 / 30;
+      if (this.waveNum === 2) return 96 / 28;
+      if (this.waveNum === 3) return 48 / 26;
+      if (this.waveNum === 4) return 30 / 24;
+      return 1;
     }
 
     difficultyMul() {
@@ -1497,6 +1680,11 @@
           alive: true,
         });
       }
+      // distinct materialize voices (arcade SPHEROID/QUARK spawn)
+      try {
+        if (spec.spheroids > 0 && !this.demoMode) AudioFX.spheroidSpawn(0);
+        if ((spec.quarks || 0) > 0 && !this.demoMode) AudioFX.quarkSpawn(0);
+      } catch (_) {}
     }
 
     makeHuman(kind, x, y) {
@@ -1550,9 +1738,14 @@
     }
 
     spawnPlayer(center) {
-      const pos = center && this.hostilesLeft && (this.grunts.length || this.hulks.length)
-        ? this.findSafeSpawn()
-        : { x: this.arena.x + this.arena.w * 0.5, y: this.arena.y + this.arena.h * 0.5 };
+      // Arcade-authentic: exact center. Easy mode (or arcadeSpawn OFF) keeps
+      // the friendlier safe-spawn search.
+      const prefs = (window.Input && window.Input.prefs) || {};
+      const wantSafe = !prefs.arcadeSpawn || this.difficultyMul() < 1;
+      const pos =
+        center && wantSafe && this.hostilesLeft && (this.grunts.length || this.hulks.length)
+          ? this.findSafeSpawn()
+          : { x: this.arena.x + this.arena.w * 0.5, y: this.arena.y + this.arena.h * 0.5 };
       const easy = this.difficultyMul() < 1 ? 0.6 : 0;
       this.player = {
         x: pos.x,
@@ -1577,22 +1770,34 @@
     }
 
     addScore(n, x, y, label) {
-      const wasBest = this.score >= this.high && this.high > 0;
       this.score += n;
+      if (this.demoMode) {
+        if (label) FX.scorePop(x, y - 24, label);
+        return;
+      }
       if (this.score > this.high) {
         this.high = this.score;
-        localStorage.setItem(HS_KEY, String(this.high));
+        try {
+          localStorage.setItem(HS_KEY, String(this.high));
+        } catch (_) {}
         if (!this.isNewBest && this.score > 0) {
           this.isNewBest = true;
           FX.scorePop(this.viewW / 2, this.arena.y + 60, "NEW BEST!", "#ffe56a");
           AudioFX.extraLife();
         }
       }
-      if (this.score >= 25000 && this.extraAwarded < 1) {
-        this.extraAwarded = 1;
-        this.lives += 1;
-        AudioFX.extraLife();
-        FX.scorePop(this.player.x, this.player.y - 70, "EXTRA LIFE", "#7ef6ff");
+      // operator repeat: every extraLifeEvery (0 = OFF), not once
+      const every = (window.Input && window.Input.prefs && window.Input.prefs.extraLifeEvery) || 0;
+      if (every > 0) {
+        if (!this.nextExtraAt || this.nextExtraAt <= 0) this.nextExtraAt = every;
+        while (this.score >= this.nextExtraAt) {
+          this.extraAwarded = (this.extraAwarded || 0) + 1;
+          this.lives += 1;
+          if (this.numPlayers === 2 && this.players) this.savePlayerSlot(this.activePlayer);
+          AudioFX.extraLife();
+          if (this.player) FX.scorePop(this.player.x, this.player.y - 70, "EXTRA LIFE", "#7ef6ff");
+          this.nextExtraAt += every;
+        }
       }
       if (label) FX.scorePop(x, y - 24, label);
     }
@@ -1604,15 +1809,89 @@
       Input.update();
 
       if (this.state === STATE.TITLE) {
-        if (Input.consumeStart()) {
-          AudioFX.resume();
+        this.titleIdle += dt;
+        if (Input.consumeCoin()) this.addCredit();
+        if (Input.consumeOperator()) {
+          this.operatorRow = 0;
+          this.setState(STATE.OPERATOR);
           AudioFX.ui();
-          this.startGame();
+          return;
+        }
+        // 2P takes priority over 1P (Digit2 / pad Y)
+        if (Input.consume2P()) {
+          AudioFX.resume();
+          if (this.startGame(2)) return;
+        }
+        if (Input.consumeStart() || Input.consume1P()) {
+          AudioFX.resume();
+          if (this.startGame(1)) return;
+        }
+        // click during title = 1P start (consumeStart already covers _clickStart,
+        // but clear the latch so it doesn't leak into play)
+        Input._clickStart = false;
+        Input.startLatch = false;
+        if (this.titleIdle > 12) {
+          this.startAttract();
+          return;
         }
         return;
       }
 
+      if (this.state === STATE.ATTRACT) {
+        if (Input.consumeCoin()) this.addCredit();
+        const want2P = Input.twoPEdge;
+        if (want2P) {
+          Input.consume2P();
+          Input._clickStart = false;
+          Input.startLatch = false;
+          Input.startEdge = false;
+          Input.onePEdge = false;
+          this.stopAttract();
+          AudioFX.resume();
+          AudioFX.ui();
+          this.startGame(2);
+          return;
+        }
+        if (Input.consumeStart() || Input.consume1P() || Input._clickStart) {
+          Input._clickStart = false;
+          Input.startLatch = false;
+          this.stopAttract();
+          AudioFX.resume();
+          AudioFX.ui();
+          this.startGame(1);
+          return;
+        }
+        Input._clickStart = false;
+        Input.startLatch = false;
+        if (Input.consumeOperator()) {
+          this.stopAttract();
+          this.operatorRow = 0;
+          this.setState(STATE.OPERATOR);
+          return;
+        }
+        this.updateAttract(dt);
+        FX.update(dt);
+        return;
+      }
+
+      if (this.state === STATE.OPERATOR) {
+        this.updateOperator();
+        return;
+      }
+
+      if (this.state === STATE.ENTRY) {
+        this.updateEntry();
+        FX.update(dt);
+        return;
+      }
+
       if (this.state === STATE.PAUSE) {
+        if (Input.consumeOperator()) {
+          this.operatorRow = 0;
+          this.pausedFromOperator = this.pausedFrom;
+          this.setState(STATE.OPERATOR);
+          return;
+        }
         if (Input.consumePause() || Input.consumeStart()) {
           this.setState(this.pausedFrom);
         }
@@ -1620,9 +1899,20 @@
       }
 
       if (this.state === STATE.CLEAR || this.state === STATE.OVER) {
-        if (Input.consumeStart()) {
+        if (Input.consumeCoin()) this.addCredit();
+        if (Input.consumeOperator()) {
+          this.operatorRow = 0;
+          this.setState(STATE.OPERATOR);
+          return;
+        }
+        if (Input.consumeStart() || Input.consume1P() || Input.consume2P()) {
           AudioFX.ui();
-          this.startGame();
+          this.setState(STATE.TITLE);
+          this.titleIdle = 0;
+        } else if (this.stateTime > 12) {
+          // arcade: game-over card holds briefly, then back to title/attract
+          this.setState(STATE.TITLE);
+          this.titleIdle = 0;
         }
         FX.update(dt);
         return;
@@ -1710,8 +2000,17 @@
         FX.burst(cx, cy, "#ffe56a", 24, 300, 2.8, 0.45);
       }
       if (t >= 3.35) {
+        if (this.demoMode) {
+          this.waveNum = this.waveNum >= 3 ? 1 : this.waveNum + 1;
+          this.buildWave();
+          this.player.invuln = 9999;
+          this.setState(STATE.PLAY);
+          return;
+        }
         this.waveNum += 1;
         if (this.waveNum > MAX_WAVE) this.waveNum = 1;
+        if (this.numPlayers === 2 && this.players) this.savePlayerSlot(this.activePlayer);
+        // ^ wave progress is per-player; saved so turn-switch restores correctly
         this.buildWave();
         this.setState(STATE.INTRO);
         AudioFX.waveStart();
@@ -1783,14 +2082,354 @@
       this.updateShells(dt);
       this.updateSparks(dt);
       if (this.stateTime > 1.55) {
+        if (this.demoMode) {
+          // attract demo: endless lives, rebuild same wave
+          this.spawnPlayer(true);
+          this.player.spawn = 0;
+          this.setState(STATE.PLAY);
+          return;
+        }
+        if (this.numPlayers === 2 && this.players) {
+          this.savePlayerSlot(this.activePlayer);
+          const other = this.activePlayer === 0 ? 1 : 0;
+          if (this.players[other].lives > 0 && this.lives <= 0) {
+            // current player eliminated — pass turn, keep their wave for return
+          }
+          if (this.players[other].lives > 0) {
+            // alternate turn on every death (Williams rule)
+            this.loadPlayerSlot(other);
+            this.buildWave();
+            this.setState(STATE.INTRO);
+            AudioFX.spawn();
+            return;
+          }
+          // other also dead — fall through to game over if current dead too
+          this.loadPlayerSlot(this.activePlayer); // restore current for gameOver scores
+          if (this.lives > 0) {
+            this.spawnPlayer(true);
+            this.player.spawn = 0;
+            AudioFX.spawn();
+            this.setState(STATE.PLAY);
+          } else {
+            this.gameOver();
+          }
+          return;
+        }
         if (this.lives > 0) {
           this.spawnPlayer(true);
           this.player.spawn = 0;
           AudioFX.spawn();
           this.setState(STATE.PLAY);
         } else {
+          this.gameOver();
+        }
+      }
+    }
+
+    gameOver() {
+      AudioFX.setTension(0);
+      // build hiscore entry queue (1P: one slot, 2P: each qualifying player)
+      this.entryQueue = [];
+      if (this.numPlayers === 2 && this.players) {
+        this.savePlayerSlot(this.activePlayer);
+        for (let i = 0; i < 2; i++) {
+          const s = this.players[i];
+          if (this.qualifiesForHiscore(s.score)) {
+            this.entryQueue.push({ score: s.score, wave: s.waveNum, player: i });
+          }
+        }
+        // highest first so table order feels natural
+        this.entryQueue.sort((a, b) => b.score - a.score);
+      } else {
+        if (this.qualifiesForHiscore(this.score)) {
+          this.entryQueue.push({ score: this.score, wave: this.waveNum, player: 0 });
+        }
+      }
+      if (this.entryQueue.length) {
+        const first = this.entryQueue.shift();
+        this.entryScore = first.score;
+        this.entryWave = first.wave;
+        this.entryPlayerIdx = first.player;
+        this.entryInitials = ["A", "A", "A"];
+        this.entryPos = 0;
+        this.setState(STATE.ENTRY);
+        AudioFX.hiscore();
+      } else {
+        this.setState(STATE.OVER);
+      }
+    }
+
+    // --- attract demo (CPU plays wave 1-3 loop, no score pollution) ---
+    startAttract() {
+      this.attractDemo = {
+        score: this.score,
+        lives: this.lives,
+        waveNum: this.waveNum,
+        humanChain: this.humanChain,
+        totalRescued: this.totalRescued,
+        numPlayers: this.numPlayers,
+        players: this.players,
+      };
+      this.demoMode = true;
+      this.numPlayers = 1;
+      this.players = null;
+      this.score = 0;
+      this.lives = 3;
+      this.humanChain = 0;
+      this.totalRescued = 0;
+      this.waveNum = 1;
+      this.nextExtraAt = 0;
+      this.extraAwarded = 0;
+      this.isNewBest = false;
+      FX.reset();
+      this.buildWave();
+      this.setState(STATE.ATTRACT);
+      // ATTRACT behaves like PLAY once built; give it a live player
+      this.player.invuln = 9999; // demo never dies visibly — respawns instantly
+    }
+
+    stopAttract() {
+      if (this.attractDemo) {
+        this.score = this.attractDemo.score;
+        this.lives = this.attractDemo.lives;
+        this.waveNum = this.attractDemo.waveNum;
+        this.humanChain = this.attractDemo.humanChain;
+        this.totalRescued = this.attractDemo.totalRescued;
+        this.numPlayers = this.attractDemo.numPlayers;
+        this.players = this.attractDemo.players;
+      }
+      this.attractDemo = null;
+      this.demoMode = false;
+      this.titleIdle = 0;
+      this.setState(STATE.TITLE);
+      FX.reset();
+    }
+
+    updateAttract(dt) {
+      // simple CPU: drift toward nearest human, shoot at nearest hostile
+      const p = this.player;
+      if (!p || !p.alive) {
+        this.waveTime += dt;
+        this.updateSpawns(dt);
+        if (this.stateTime > 1.2) {
+          this.spawnPlayer(true);
+          this.player.invuln = 9999;
+        }
+        return;
+      }
+      // pick rescue target
+      let hx = null,
+        hy = null,
+        best = Infinity;
+      for (const h of this.humans) {
+        if (!h.alive || h.converting) continue;
+        const d = Math.hypot(h.x - p.x, h.y - p.y);
+        if (d < best) {
+          best = d;
+          hx = h.x;
+          hy = h.y;
+        }
+      }
+      // pick shoot target
+      let tx = null,
+        ty = null;
+      let bestE = Infinity;
+      const foes = [...this.grunts, ...this.enforcers, ...this.brains, ...this.tanks, ...this.spheroids, ...this.quarks, ...this.progs];
+      for (const e of foes) {
+        if (!e.alive) continue;
+        const d = Math.hypot(e.x - p.x, e.y - p.y);
+        if (d < bestE) {
+          bestE = d;
+          tx = e.x;
+          ty = e.y;
+        }
+      }
+      // drive synthetic input via direct player steering (don't touch real Input)
+      // seek nearest human, flee close grunts, always keep moving + firing
+      const m = this.minDim;
+      let mx = 0,
+        my = 0;
+      if (hx != null) {
+        const [nx, ny] = norm(hx - p.x, hy - p.y);
+        mx += nx;
+        my += ny;
+      }
+      // flee nearest grunts blended in so demo never parks inside the mob
+      for (const gr of this.grunts) {
+        if (!gr.alive) continue;
+        const dx = p.x - gr.x;
+        const dy = p.y - gr.y;
+        const d = Math.hypot(dx, dy);
+        const fleeR = m * 0.3;
+        if (d > 1 && d < fleeR) {
+          const wgt = (1 - d / fleeR) * 2.2;
+          mx += (dx / d) * wgt;
+          my += (dy / d) * wgt;
+        }
+      }
+      // wander so it never stalls once humans are gone
+      mx += Math.cos(this.time * 1.7) * 0.45;
+      my += Math.sin(this.time * 2.3) * 0.45;
+      // gentle centering when pushed to a wall
+      const { x: ax, y: ay, w: aw, h: ah } = this.arena;
+      const cx = ax + aw * 0.5;
+      const cyy = ay + ah * 0.5;
+      mx += ((cx - p.x) / aw) * 0.8;
+      my += ((cyy - p.y) / ah) * 0.8;
+      {
+        const [nx, ny] = norm(mx, my);
+        if (Math.hypot(nx, ny) > 0.01) {
+          p.x += nx * m * 0.45 * dt;
+          p.y += ny * m * 0.45 * dt;
+          this.clampEntity(p);
+          p.face = facingFrom(nx, ny);
+          p.anim += dt * 8;
+        }
+      }
+      if (tx != null) {
+        const [nx, ny] = norm(tx - p.x, ty - p.y);
+        p.aimX = nx;
+        p.aimY = ny;
+        this.fireCd -= dt;
+        if (this.fireCd <= 0 && this.bullets.length < 8) {
+          this.fireCd = 0.12;
+          this.bullets.push({ x: p.x + nx * m * 0.045, y: p.y - m * 0.045 + ny * m * 0.045, vx: nx * m * 1.4, vy: ny * m * 1.4, r: m * 0.011, life: 1.1, trail: [] });
+        }
+      }
+      p.spawn = Math.min(1, p.spawn + dt * 2);
+      this.waveTime += dt;
+      this.updateSpawns(dt);
+      this.updateHumans(dt);
+      this.updateGrunts(dt);
+      this.updateHulks(dt);
+      this.updateSpheroids(dt);
+      this.updateEnforcers(dt);
+      this.updateBrains(dt);
+      this.updateProgs(dt);
+      this.updateMissiles(dt);
+      this.updateQuarks(dt);
+      this.updateTanks(dt);
+      this.updateShells(dt);
+      this.updateBullets(dt);
+      this.updateSparks(dt);
+      // bullets vs enemies + rescue via shared collide(); player death is
+      // skipped inside collide() while demo invuln holds, so no state change.
+      this.collide();
+      // demo never takes damage (invuln); cycle waves 1-3
+      if (this.hostilesLeft() === 0) {
+        this.waveNum = this.waveNum >= 3 ? 1 : this.waveNum + 1;
+        this.buildWave();
+        this.player.invuln = 9999;
+      }
+      if (this.stateTime > 25) {
+        // arcade cycle: demo -> title/high-scores -> demo ...
+        this.stopAttract();
+      }
+    }
+
+    // --- operator menu ---
+    updateOperator() {
+      const prefs = (window.Input && window.Input.prefs) || {};
+      const rows = ["extraLifeEvery", "startLives", "freePlay", "arcadeSpawn"];
+      if (Input.consumeMenu("up")) {
+        this.operatorRow = (this.operatorRow + rows.length - 1) % rows.length;
+        AudioFX.tick(0);
+      }
+      if (Input.consumeMenu("down")) {
+        this.operatorRow = (this.operatorRow + 1) % rows.length;
+        AudioFX.tick(0);
+      }
+      const row = rows[this.operatorRow];
+      const cycle = (dir) => {
+        if (row === "extraLifeEvery") {
+          const opts = [20000, 25000, 30000, 50000, 0];
+          let i = opts.indexOf(prefs.extraLifeEvery);
+          if (i < 0) i = 1;
+          i = (i + dir + opts.length) % opts.length;
+          prefs.extraLifeEvery = opts[i];
+        } else if (row === "startLives") {
+          prefs.startLives = prefs.startLives === 3 ? 5 : 3;
+        } else if (row === "freePlay") {
+          prefs.freePlay = !prefs.freePlay;
+        } else if (row === "arcadeSpawn") {
+          prefs.arcadeSpawn = !prefs.arcadeSpawn;
+        }
+        try {
+          localStorage.setItem("robotron2084_prefs_v1", JSON.stringify(prefs));
+        } catch (_) {}
+        AudioFX.ui();
+      };
+      if (Input.consumeMenu("left")) cycle(-1);
+      if (Input.consumeMenu("right")) cycle(1);
+      // H clears hiscores, C adds credit for testing
+      if (window.Input.keys && window.Input.keys.KeyH) {
+        window.Input.keys.KeyH = false;
+        this.hiscores = [];
+        this.saveHiscores();
+        AudioFX.ui();
+      }
+      if (Input.consumeCoin()) this.addCredit();
+      if (Input.consumeOperator() || Input.consumePause() || Input.consumeStart()) {
+        AudioFX.ui();
+        if (this.pausedFromOperator) {
+          const dst = this.pausedFromOperator;
+          this.pausedFromOperator = null;
+          this.setState(STATE.PAUSE);
+          this.pausedFrom = dst;
+        } else {
+          this.setState(STATE.TITLE);
+          this.titleIdle = 0;
+        }
+      }
+    }
+
+    // --- hiscore initials entry ---
+    updateEntry() {
+      const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ!?.-";
+      // up/down cycle current slot, left/right move
+      if (Input.consumeMenu("up")) {
+        const i = letters.indexOf(this.entryInitials[this.entryPos]);
+        this.entryInitials[this.entryPos] = letters[(i + 1 + letters.length) % letters.length];
+        AudioFX.tick(0);
+      }
+      if (Input.consumeMenu("down")) {
+        const i = letters.indexOf(this.entryInitials[this.entryPos]);
+        this.entryInitials[this.entryPos] = letters[(i - 1 + letters.length) % letters.length];
+        AudioFX.tick(0);
+      }
+      if (Input.consumeMenu("left")) {
+        this.entryPos = (this.entryPos + 2) % 3;
+        AudioFX.tick(0);
+      }
+      if (Input.consumeMenu("right")) {
+        this.entryPos = (this.entryPos + 1) % 3;
+        AudioFX.tick(0);
+      }
+      // typing A-Z directly also works (WASD reserved for menu nav — cycle to get those)
+      for (const code of Object.keys(Input.keys)) {
+        if (!Input.keys[code]) continue;
+        if (/^Key[A-Z]$/.test(code)) {
+          if (code === "KeyW" || code === "KeyA" || code === "KeyS" || code === "KeyD") continue;
+          this.entryInitials[this.entryPos] = code.slice(3);
+          this.entryPos = Math.min(2, this.entryPos + 1);
+          Input.keys[code] = false;
+          AudioFX.tick(0);
+        }
+      }
+      if (Input.consumeStart()) {
+        const name = this.entryInitials.join("");
+        this.insertHiscore(name, this.entryScore, this.entryWave);
+        AudioFX.waveClear();
+        if (this.entryQueue.length) {
+          const nxt = this.entryQueue.shift();
+          this.entryScore = nxt.score;
+          this.entryWave = nxt.wave;
+          this.entryPlayerIdx = nxt.player;
+          this.entryInitials = ["A", "A", "A"];
+          this.entryPos = 0;
+          AudioFX.hiscore();
+        } else {
           this.setState(STATE.OVER);
-          AudioFX.setTension(0);
         }
       }
     }
@@ -1990,9 +2629,25 @@
     updateGrunts(dt) {
       const p = this.player;
       const t = this.waveTime;
-      const mul = (this.waveSpec().gruntMul || 1) * this.difficultyMul();
+      let mul = (this.waveSpec().gruntMul || 1) * this.difficultyMul();
+      if (this.bozoActive()) mul *= this.bozoGruntFactor();
       const base = this.minDim * (0.115 + Math.min(0.42, t * 0.011)) * mul;
       const live = this.grunts.filter((g) => g.alive);
+      // arcade GRUNT footstep tick — throttled game-side, panned to mob center
+      if (live.length && p && p.alive && this.state === STATE.PLAY && !this.demoMode) {
+        this._stepT = (this._stepT || 0) - dt;
+        if (this._stepT <= 0) {
+          this._stepT = 0.34;
+          let sx = 0,
+            sy = 0;
+          for (const g of live) {
+            sx += g.x;
+            sy += g.y;
+          }
+          sx /= live.length;
+          AudioFX.gruntStep(((sx - this.arena.x) / this.arena.w) * 2 - 1);
+        }
+      }
       for (const g of live) {
         if (!p || !p.alive) break;
         let dx = p.x - g.x;
@@ -2178,7 +2833,8 @@
           e.fire -= dt;
           if (e.fire <= 0 && this.sparks.length < 12) {
             const dMul = this.difficultyMul() < 1 ? 1.35 : 1;
-            e.fire = rand(spec.fireMin * dMul, spec.fireMax * dMul);
+            const bMul = this.bozoActive() ? this.bozoFireMul() : 1;
+            e.fire = rand(spec.fireMin * dMul * bMul, spec.fireMax * dMul * bMul);
             const jitter = m * 0.07;
             const tx = p.x + (Math.random() - 0.5) * jitter * 2;
             const ty = p.y + (Math.random() - 0.5) * jitter * 2;
@@ -2282,7 +2938,8 @@
         b.fire -= dt;
         if (b.fire <= 0 && this.missiles.length < 6 && this.player && this.player.alive) {
           const dMul = diff < 1 ? 1.4 : 1;
-          b.fire = rand(2.8 * dMul, 4.6 * dMul);
+          const bMul = this.bozoActive() ? this.bozoFireMul() : 1;
+          b.fire = rand(2.8 * dMul * bMul, 4.6 * dMul * bMul);
           const [nx, ny] = norm(this.player.x - b.x, this.player.y - b.y);
           const spd = m * (spec.missileMul || 0.4) * diff;
           this.missiles.push({
@@ -2486,7 +3143,8 @@
         t.fire -= dt;
         if (this.state === STATE.PLAY && t.fire <= 0 && this.shells.length < 10 && this.player && this.player.alive) {
           const dMul = diff < 1 ? 1.35 : 1;
-          t.fire = rand((spec.tankFireMin || 1.4) * dMul, (spec.tankFireMax || 2.2) * dMul);
+          const bMul = this.bozoActive() ? this.bozoFireMul() : 1;
+          t.fire = rand((spec.tankFireMin || 1.4) * dMul * bMul, (spec.tankFireMax || 2.2) * dMul * bMul);
           const jitter = m * 0.06;
           const tx = this.player.x + (Math.random() - 0.5) * jitter;
           const ty = this.player.y + (Math.random() - 0.5) * jitter;
@@ -2703,7 +3361,7 @@
             if (Math.hypot(b.x - sh.x, b.y - sh.y) < sh.r + b.r + 3) {
               this.shells.splice(si, 1);
               hit = true;
-              this.addScore(25, sh.x, sh.y, "25");
+              this.addScore(50, sh.x, sh.y, "50");
               FX.burst(sh.x, sh.y, "#ffb040", 8, 150, 2, 0.2);
               break;
             }
@@ -2948,9 +3606,12 @@
     killPlayer() {
       const p = this.player;
       if (!p || !p.alive) return;
+      if (p.invuln > 9000) return; // attract demo never dies
       p.alive = false;
       this.lives -= 1;
+      if (!this.demoMode) this.deaths += 1;
       this.humanChain = 0;
+      if (this.numPlayers === 2 && this.players) this.savePlayerSlot(this.activePlayer);
       this.bullets = [];
       this.sparks = [];
       this.missiles = [];
@@ -3004,7 +3665,7 @@
       return s[base + "_s"];
     }
 
-    drawSprite(ctx, img, x, footY, height, spawn = 1, flicker = 1, bob = 0, flipH = false, tilt = 0) {
+    drawSprite(ctx, img, x, footY, height, spawn = 1, flicker = 1, bob = 0, flipH = false, tilt = 0, flipV = false) {
       if (!img || flicker <= 0) return;
       const aspect = img.width / img.height;
       const w = height * aspect;
@@ -3012,10 +3673,10 @@
       ctx.save();
       ctx.globalAlpha *= flicker;
       // lean/flip so S-only sprites don't pop when facing E/W — cheap 2.5D
-      if (flipH || tilt) {
+      if (flipH || tilt || flipV) {
         ctx.translate(x, footY - height / 2);
         if (tilt) ctx.rotate(tilt);
-        if (flipH) ctx.scale(-1, 1);
+        ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
         ctx.translate(-x, -(footY - height / 2));
       }
       if (spawn < 0.999) {
@@ -3068,6 +3729,18 @@
         return;
       }
 
+      if (this.state === STATE.OPERATOR) {
+        this.renderArena(ctx);
+        this.renderOperator(ctx);
+        return;
+      }
+
+      if (this.state === STATE.ENTRY) {
+        this.renderArena(ctx);
+        this.renderEntry(ctx);
+        return;
+      }
+
       const [ox, oy] = FX.offset();
       ctx.save();
       ctx.translate(ox, oy);
@@ -3094,10 +3767,21 @@
       this.renderHUD(ctx);
 
       if (this.state === STATE.INTRO) {
-        if (this.waveNum === 1) this.renderHowTo(ctx);
-        else this.renderBanner(ctx, "WAVE " + this.waveNum, this.waveSpec().subtitle);
+        if (this.waveNum === 1) {
+          if (this.numPlayers === 2) this.renderBanner(ctx, (this.activePlayer === 0 ? "P1 " : "P2 ") + "WAVE 1", this.waveSpec().subtitle);
+          else this.renderHowTo(ctx);
+        } else {
+          const tag = this.numPlayers === 2 ? (this.activePlayer === 0 ? "P1 " : "P2 ") : "";
+          this.renderBanner(ctx, tag + "WAVE " + this.waveNum, this.waveSpec().subtitle);
+        }
       }
-      if (this.state === STATE.DEAD && this.lives > 0) this.renderBanner(ctx, "DESTROYED", "GET READY");
+      if (this.state === STATE.DEAD && this.lives > 0) {
+        const tag = this.numPlayers === 2 ? (this.activePlayer === 0 ? "P1 " : "P2 ") : "";
+        this.renderBanner(ctx, tag + "DESTROYED", this.numPlayers === 2 ? "CHANGEOVER — GET READY" : "GET READY");
+      }
+      if (this.state === STATE.ATTRACT) {
+        this.renderAttractOverlay(ctx);
+      }
       if (this.state === STATE.TRANS) this.renderWipe(ctx);
       if (this.state === STATE.CLEAR) this.renderEnd(ctx, true);
       if (this.state === STATE.OVER) this.renderEnd(ctx, false);
@@ -3189,13 +3873,29 @@
 
       ctx.fillStyle = "rgba(255,255,255,0.82)";
       ctx.font = "16px 'Share Tech Mono', monospace";
-      ctx.fillText("SAVE THE LAST HUMAN FAMILY  ·  DESTROY THE GRUNTS  ·  AVOID THE HULKS", w / 2, h * 0.78);
+      ctx.fillText("SAVE THE LAST HUMAN FAMILY  ·  DESTROY THE GRUNTS  ·  AVOID THE HULKS", w / 2, h * 0.72);
 
+      // hiscore table (top 5) + credits + 1P/2P prompts
+      ctx.font = "14px 'Share Tech Mono', monospace";
+      if (this.hiscores.length) {
+        ctx.fillStyle = "#ffe56a";
+        ctx.fillText("— HALL OF FAME —", w / 2, h * 0.76);
+        ctx.font = "13px 'Share Tech Mono', monospace";
+        const rows = this.hiscores.slice(0, 5);
+        rows.forEach((e, i) => {
+          ctx.fillStyle = i === 0 ? "#ffe56a" : "rgba(255,255,255,0.8)";
+          ctx.fillText(`${i + 1}. ${e.name}  ${String(e.score).padStart(6, "0")}  W${e.wave}`, w / 2, h * 0.76 + 18 + i * 16);
+        });
+      }
+
+      const prefs = Input.prefs || {};
+      const credLine = prefs.freePlay ? "FREE PLAY" : `CREDITS ${this.credits}  ·  C/5 COIN`;
       const pulse = 0.65 + 0.35 * Math.sin(this.titlePulse * 3.2);
       ctx.globalAlpha = pulse;
       ctx.fillStyle = "#fff";
-      ctx.font = "700 22px Orbitron, sans-serif";
-      ctx.fillText("PRESS START  /  SPACE  /  CLICK", w / 2, h * 0.84);
+      ctx.font = "700 20px Orbitron, sans-serif";
+      const needCoin = !prefs.freePlay && this.credits <= 0;
+      ctx.fillText(needCoin ? "INSERT COIN  (C)" : "1: 1 PLAYER   ·   2: 2 PLAYERS   ·   SPACE: 1P", w / 2, h * 0.875);
       ctx.globalAlpha = 1;
 
       ctx.font = "14px 'Share Tech Mono', monospace";
@@ -3205,9 +3905,9 @@
           ? `TWO JOYSTICKS  ·  STICK 1 MOVE   STICK 2 FIRE   ·  ${Input.padName}`
           : `GAMEPAD  ·  LEFT STICK MOVE   RIGHT STICK FIRE 360°   ·  ${Input.padName}`
         : "NO GAMEPAD  ·  WASD MOVE   ARROWS FIRE   ·  MOUSE AIM + CLICK";
-      ctx.fillText(padLine, w / 2, h * 0.89);
+      ctx.fillText(padLine, w / 2, h * 0.91);
       ctx.fillStyle = "#889";
-      ctx.fillText("HIGH SCORE  " + String(this.high).padStart(6, "0") + "    ·    F  FULLSCREEN", w / 2, h * 0.935);
+      ctx.fillText(`${credLine}  ·  HIGH ${String(this.high).padStart(6, "0")}  ·  O OPERATOR  ·  F FULLSCREEN`, w / 2, h * 0.945);
     }
 
     renderArena(ctx) {
@@ -3301,19 +4001,36 @@
       ctx.fillRect(x, y, w, h);
       ctx.restore();
 
-      // energy walls
-      const pulse = 0.45 + 0.25 * Math.sin(this.time * 3.4);
-      ctx.save();
-      ctx.strokeStyle = `rgba(40, 230, 255, ${0.35 + pulse * 0.25})`;
-      ctx.shadowColor = "#18e8ff";
-      ctx.shadowBlur = 18;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x, y, w, h);
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = `rgba(255, 43, 214, ${0.18 + pulse * 0.12})`;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x + 5, y + 5, w - 10, h - 10);
-      ctx.restore();
+      // energy walls (open-border waves: faint dotted edge only)
+      const open = (() => {
+        try {
+          return !!(this.waveSpec && this.waveSpec().openBorder);
+        } catch (_) {
+          return false;
+        }
+      })();
+      if (open) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(120,140,160,0.28)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([8, 10]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.restore();
+      } else {
+        const pulse = 0.45 + 0.25 * Math.sin(this.time * 3.4);
+        ctx.save();
+        ctx.strokeStyle = `rgba(40, 230, 255, ${0.35 + pulse * 0.25})`;
+        ctx.shadowColor = "#18e8ff";
+        ctx.shadowBlur = 18;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, y, w, h);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = `rgba(255, 43, 214, ${0.18 + pulse * 0.12})`;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 5, y + 5, w - 10, h - 10);
+        ctx.restore();
+      }
     }
 
     renderWorld(ctx) {
@@ -3426,7 +4143,8 @@
           const t = d.e;
           this.drawShadow(ctx, t.x, t.y, m * 0.034, m * 0.012);
           const img = this.spriteFor("tank", t.face, true, 0);
-          this.drawSprite(ctx, img, t.x, t.y, m * 0.1, t.spawn, 1, 0);
+          // north uses flipped hull so N/S read differently without new art
+          this.drawSprite(ctx, img, t.x, t.y, m * 0.1, t.spawn, 1, 0, false, 0, t.face === "n");
         }
         if (d.kind === "prog") {
           const g = d.e;
@@ -3912,7 +4630,8 @@
       ctx.textAlign = "left";
       ctx.font = "700 13px Orbitron, sans-serif";
       ctx.fillStyle = "#7fd6a5";
-      ctx.fillText("SCORE", 28, 24);
+      const pTag = this.numPlayers === 2 ? (this.activePlayer === 0 ? "P1 " : "P2 ") : this.demoMode ? "DEMO " : "";
+      ctx.fillText(pTag + "SCORE", 28, 24);
       ctx.fillStyle = "#fff";
       ctx.font = "700 30px 'Share Tech Mono', monospace";
       ctx.fillText(String(this.score).padStart(6, "0"), 28, 54);
@@ -3936,7 +4655,10 @@
       ctx.font = "700 15px Orbitron, sans-serif";
       ctx.fillStyle = "#7fd6a5";
       const diffTag = Input.prefs && Input.prefs.difficulty === "easy" ? " · EASY" : "";
-      ctx.fillText("WAVE " + this.waveNum + diffTag, w - 28, 26);
+      const bozoTag = this.bozoActive() ? " · BOZO" : "";
+      const pWave = this.numPlayers === 2 ? (this.activePlayer === 0 ? "P1 " : "P2 ") : "";
+      const credTag = !(Input.prefs && Input.prefs.freePlay) ? ` · CR ${this.credits}` : "";
+      ctx.fillText(pWave + "WAVE " + this.waveNum + diffTag + bozoTag + credTag, w - 28, 26);
 
       const lifeImg = this.sprites.player_s;
       const lh = 24;
@@ -3986,6 +4708,12 @@
       const tnk = this.tankCount();
       if (qrk || tnk) {
         chip(`QRK ${qrk} TNK ${tnk}`, "#ffb040");
+      }
+      if (this.numPlayers === 2 && this.players) {
+        const a = this.players[0],
+          b = this.players[1];
+        chip(`P1 ${String(a.score).padStart(6, "0")} L${a.lives}`, this.activePlayer === 0 ? "#7ef6ff" : "#5a6a7a");
+        chip(`P2 ${String(b.score).padStart(6, "0")} L${b.lives}`, this.activePlayer === 1 ? "#ff7ae0" : "#5a6a7a");
       }
       // prefs status, bottom-right of HUD so it never collides
       ctx.textAlign = "right";
@@ -4124,22 +4852,41 @@
         ctx.shadowBlur = 22;
         ctx.fillStyle = "#ff6a7a";
         ctx.font = `900 ${Math.round(Math.min(60, w * 0.048))}px Orbitron, sans-serif`;
-        ctx.fillText("GAME OVER", w / 2, h * 0.36);
+        ctx.fillText("GAME OVER", w / 2, h * 0.3);
         ctx.shadowBlur = 0;
         if (this.isNewBest) {
           ctx.fillStyle = "#ffe56a";
           ctx.font = "900 22px Orbitron, sans-serif";
-          ctx.fillText("★ NEW BEST ★", w / 2, h * 0.45);
+          ctx.fillText("★ NEW BEST ★", w / 2, h * 0.37);
+        }
+        if (this.numPlayers === 2 && this.players) {
+          ctx.fillStyle = "#fff";
+          ctx.font = "700 20px Orbitron, sans-serif";
+          ctx.fillText(`P1  ${String(this.players[0].score).padStart(6, "0")}  W${this.players[0].waveNum}      P2  ${String(this.players[1].score).padStart(6, "0")}  W${this.players[1].waveNum}`, w / 2, h * 0.45);
+        } else {
+          ctx.fillStyle = "#fff";
+          ctx.font = "700 22px Orbitron, sans-serif";
+          ctx.fillText("SCORE  " + String(this.score).padStart(6, "0"), w / 2, h * 0.45);
+          ctx.fillStyle = "#ffe56a";
+          ctx.font = "16px 'Share Tech Mono', monospace";
+          ctx.fillText("WAVE " + this.waveNum + "  ·  FAMILY SAVED " + this.totalRescued, w / 2, h * 0.5);
+        }
+        // hall of fame
+        if (this.hiscores.length) {
+          ctx.fillStyle = "#ffe56a";
+          ctx.font = "700 15px Orbitron, sans-serif";
+          ctx.fillText("— HALL OF FAME —", w / 2, h * 0.57);
+          ctx.font = "14px 'Share Tech Mono', monospace";
+          this.hiscores.slice(0, 5).forEach((e, i) => {
+            ctx.fillStyle = i === 0 ? "#ffe56a" : "rgba(255,255,255,0.85)";
+            ctx.fillText(`${i + 1}. ${e.name}  ${String(e.score).padStart(6, "0")}  W${e.wave}`, w / 2, h * 0.57 + 20 + i * 18);
+          });
         }
         ctx.fillStyle = "#fff";
-        ctx.font = "700 22px Orbitron, sans-serif";
-        ctx.fillText("SCORE  " + String(this.score).padStart(6, "0"), w / 2, h * 0.58);
-        ctx.fillStyle = "#ffe56a";
-        ctx.font = "16px 'Share Tech Mono', monospace";
-        ctx.fillText("WAVE " + this.waveNum + "  ·  FAMILY SAVED " + this.totalRescued, w / 2, h * 0.64);
-        ctx.fillStyle = "#fff";
         ctx.font = "700 18px Orbitron, sans-serif";
-        ctx.fillText("PRESS START TO PLAY AGAIN", w / 2, h * 0.72);
+        ctx.globalAlpha = 0.65 + 0.35 * Math.sin(t * 3.2);
+        ctx.fillText("PRESS START FOR TITLE", w / 2, h * 0.85);
+        ctx.globalAlpha = 1;
       }
     }
 
@@ -4170,8 +4917,106 @@
       ctx.font = "16px 'Share Tech Mono', monospace";
       const blink = 0.6 + 0.4 * Math.sin(this.time * 4);
       ctx.globalAlpha = blink;
-      ctx.fillText("START / SPACE / ESC TO RESUME", w / 2, h * 0.66);
+      ctx.fillText("START / SPACE / ESC TO RESUME   ·   O OPERATOR", w / 2, h * 0.66);
       ctx.globalAlpha = 1;
+    }
+
+    renderAttractOverlay(ctx) {
+      const w = this.viewW;
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(4,6,12,0.35)";
+      ctx.fillRect(0, this.hudH + 8, w, 52);
+      ctx.fillStyle = "#ffe56a";
+      ctx.shadowColor = "#ffe56a";
+      ctx.shadowBlur = 14;
+      ctx.font = "900 26px Orbitron, sans-serif";
+      ctx.fillText("DEMO — INSERT COIN / PRESS START", w / 2, this.hudH + 42);
+      ctx.shadowBlur = 0;
+    }
+
+    renderOperator(ctx) {
+      const w = this.viewW;
+      const h = this.viewH;
+      const prefs = (window.Input && window.Input.prefs) || {};
+      ctx.fillStyle = "rgba(4,6,12,0.85)";
+      ctx.fillRect(0, 0, w, h);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#7ef6ff";
+      ctx.shadowColor = "#18e8ff";
+      ctx.shadowBlur = 18;
+      ctx.font = "900 42px Orbitron, sans-serif";
+      ctx.fillText("OPERATOR", w / 2, h * 0.24);
+      ctx.shadowBlur = 0;
+      const exLabel = prefs.extraLifeEvery === 0 ? "OFF" : String(prefs.extraLifeEvery);
+      const rows = [
+        ["EXTRA LIFE EVERY", exLabel],
+        ["STARTING LIVES", String(prefs.startLives === 5 ? 5 : 3)],
+        ["FREE PLAY", prefs.freePlay ? "ON" : "OFF"],
+        ["ARCADE SPAWN (EXACT CENTER)", prefs.arcadeSpawn ? "ON" : "OFF"],
+      ];
+      ctx.font = "16px 'Share Tech Mono', monospace";
+      rows.forEach((r, i) => {
+        const y = h * 0.36 + i * 34;
+        ctx.fillStyle = i === this.operatorRow ? "#ffe56a" : "rgba(255,255,255,0.85)";
+        if (i === this.operatorRow) {
+          ctx.shadowColor = "#ffe56a";
+          ctx.shadowBlur = 10;
+        } else ctx.shadowBlur = 0;
+        ctx.fillText(`${i === this.operatorRow ? "> " : "  "}${r[0]}: ${r[1]}`, w / 2, y);
+        ctx.shadowBlur = 0;
+      });
+      ctx.fillStyle = "#8a95a5";
+      ctx.font = "13px 'Share Tech Mono', monospace";
+      ctx.fillText("UP/DOWN SELECT · LEFT/RIGHT CHANGE · H WIPE HISCORES · C COIN", w / 2, h * 0.36 + 4 * 34 + 10);
+      ctx.fillText(`CREDITS ${this.credits} · HISCORES ${this.hiscores.length}/10`, w / 2, h * 0.36 + 4 * 34 + 32);
+      ctx.fillStyle = "#fff";
+      ctx.font = "700 18px Orbitron, sans-serif";
+      ctx.globalAlpha = 0.65 + 0.35 * Math.sin(this.time * 4);
+      ctx.fillText("O / ESC TO EXIT", w / 2, h * 0.82);
+      ctx.globalAlpha = 1;
+    }
+
+    renderEntry(ctx) {
+      const w = this.viewW;
+      const h = this.viewH;
+      ctx.fillStyle = "rgba(4,6,12,0.85)";
+      ctx.fillRect(0, 0, w, h);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffe56a";
+      ctx.shadowColor = "#ffe56a";
+      ctx.shadowBlur = 20;
+      ctx.font = "900 40px Orbitron, sans-serif";
+      const who = this.numPlayers === 2 ? (this.entryPlayerIdx === 0 ? "P1 " : "P2 ") : "";
+      ctx.fillText(who + "NEW HIGH SCORE!", w / 2, h * 0.3);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#fff";
+      ctx.font = "700 24px 'Share Tech Mono', monospace";
+      ctx.fillText(`${String(this.entryScore).padStart(6, "0")}  WAVE ${this.entryWave}`, w / 2, h * 0.38);
+      ctx.font = "700 18px Orbitron, sans-serif";
+      ctx.fillStyle = "#7ef6ff";
+      ctx.fillText("ENTER INITIALS", w / 2, h * 0.46);
+      // letters
+      ctx.font = "900 64px Orbitron, sans-serif";
+      this.entryInitials.forEach((ch, i) => {
+        const x = w / 2 + (i - 1) * 64;
+        const sel = i === this.entryPos;
+        ctx.fillStyle = sel ? "#ffe56a" : "#fff";
+        ctx.shadowColor = sel ? "#ffe56a" : "transparent";
+        ctx.shadowBlur = sel ? 18 : 0;
+        ctx.fillText(ch, x, h * 0.6);
+        if (sel) {
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = "#ffe56a";
+          ctx.fillRect(x - 22, h * 0.6 + 12, 44, 3);
+        }
+      });
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#8a95a5";
+      ctx.font = "14px 'Share Tech Mono', monospace";
+      ctx.fillText("UP/DOWN OR TYPE A-Z · LEFT/RIGHT MOVE · START CONFIRM", w / 2, h * 0.7);
+      if (this.entryQueue.length) {
+        ctx.fillText(`${this.entryQueue.length} MORE TO ENTER`, w / 2, h * 0.74);
+      }
     }
   }
 

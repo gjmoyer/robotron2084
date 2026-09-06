@@ -368,6 +368,32 @@ def main() -> None:
     # cmd $1B organ 9th (documented wave-start signature)
     write_wav("ninth.wav", organ_ninth())
 
+    # --- gap fills: distinct voices for previously-shared slots ---
+    # cmd $06 HKHSND — GWAVE HBEV hulk thud (was ui.wav placeholder)
+    write_wav("hulk.wav", gwave(GS2, BONSND, echoes=2, gccnt=2, gecdec=3))
+    # GRUNT footstep tick — short low LFSR tap, throttled game-side
+    write_wav("gruntstep.wav", lfsr_noise(0x50, 0, 12, 1, mode="amp"))
+    # SPHEROID materialize shimmer (wave-start spawn, was silent/appear)
+    write_wav("spheroidspawn.wav", gwave(GS1, SPNSND * 2, echoes=2, gccnt=1, gecdec=2))
+    # QUARK materialize — lower twin of spheroid shimmer
+    write_wav("quarkspawn.wav", gwave(GS2, SPNSND * 2, echoes=2, gccnt=1, gecdec=2, gdfinc=0x08))
+    # TANK fire — deeper toggle-noise than LITE brain shot
+    write_wav("tankfire.wav", lfsr_noise(0x80, -2, 60, 2, mode="toggle"))
+    # TANK shell bounce — short square blip
+    write_wav("bounce.wav", gwave(GSQ22, [0x08, 0x10], echoes=1, gccnt=2, gecdec=2))
+    # TANK explode — longer cannon than grunt cannon
+    write_wav("tankboom.wav", fnoise_cannon(0.6))
+    # BRAIN cruise-missile launch — rising LFSR whistle
+    write_wav("brainstart.wav", lfsr_noise(0x30, 3, 70, 2, mode="amp"))
+    # HUMAN-to-PROG start warble
+    write_wav("progstart.wav", gwave(GS12, ED13FP, echoes=2, gccnt=2, gecdec=2))
+    # PROG transformation complete — rising twin
+    write_wav("progdone.wav", gwave(GS12, BONSND[::-1], echoes=2, gccnt=2, gecdec=2))
+    # power-on self-test sweep
+    write_wav("startup.wav", gwave(GS72, YUKSND[:9], echoes=2, gccnt=2, gecdec=2))
+    # high-score table topper jingle
+    write_wav("hiscore.wav", gwave(GS1, SPNSND * 6, echoes=4, gccnt=1, gecdec=2, gdfinc=0xFE))
+
     # background tension drone (BG1-style filtered noise), several brightnesses
     for i, start in enumerate((0xA0, 0x70, 0x48, 0x28)):
         write_wav(f"bg{i}.wav", lfsr_noise(start, 0, 200, 4, mode="amp"))

@@ -15,6 +15,18 @@
     saw: "assets/sounds/vari_saw.wav",
     quasar: "assets/sounds/vari_quasar.wav",
     cscale: "assets/sounds/vari_cscale.wav",
+    hulk: "assets/sounds/hulk.wav",
+    gruntstep: "assets/sounds/gruntstep.wav",
+    spheroidspawn: "assets/sounds/spheroidspawn.wav",
+    quarkspawn: "assets/sounds/quarkspawn.wav",
+    tankfire: "assets/sounds/tankfire.wav",
+    bounce: "assets/sounds/bounce.wav",
+    tankboom: "assets/sounds/tankboom.wav",
+    brainstart: "assets/sounds/brainstart.wav",
+    progstart: "assets/sounds/progstart.wav",
+    progdone: "assets/sounds/progdone.wav",
+    startup: "assets/sounds/startup.wav",
+    hiscore: "assets/sounds/hiscore.wav",
     bg0: "assets/sounds/bg0.wav",
     bg1: "assets/sounds/bg1.wav",
     bg2: "assets/sounds/bg2.wav",
@@ -35,7 +47,7 @@
     _lastTick: -1000,
     // Bump when a wav is regenerated or game.js ?v= is bumped, so the
     // browser refetches sounds instead of decoding stale cached copies.
-    assetV: "?v=5",
+    assetV: "?v=7",
 
     async load() {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -176,6 +188,33 @@
       this._play("ui", pan);
     },
 
+    gruntStep(pan = 0) {
+      const now = performance.now();
+      if (now - (this._lastStep || 0) < 140) return;
+      this._lastStep = now;
+      this._play("gruntstep", pan, 0, 0.09);
+    },
+
+    spheroidSpawn(pan = 0) {
+      this._play("spheroidspawn", pan, 0, 0.3);
+    },
+
+    quarkSpawn(pan = 0) {
+      this._play("quarkspawn", pan, 0, 0.3);
+    },
+
+    startup() {
+      this.fire("startup");
+    },
+
+    hiscore() {
+      this.fire("hiscore");
+    },
+
+    coin() {
+      this.fire("ui");
+    },
+
     gruntDie(pan = 0) {
       // RBSND: $14 TURBO for 12*16ms, then $17 CANNON
       this.sequence(
@@ -247,7 +286,7 @@
     },
 
     brainFire(pan = 0) {
-      this._play("lite", pan);
+      this._play("brainstart", pan);
     },
 
     brainDie(pan = 0) {
@@ -261,23 +300,23 @@
     },
 
     convertStart() {
-      this._play("appear");
+      this._play("progstart");
     },
 
     convertDone() {
-      this._play("ui");
+      this._play("progdone");
     },
 
     tankFire(pan = 0) {
-      this._play("lite", pan);
+      this._play("tankfire", pan);
     },
 
     tankBounce() {
-      this._play("ui");
+      this._play("bounce");
     },
 
     tankDie(pan = 0) {
-      this.fire("cannon", pan);
+      this.fire("tankboom", pan);
     },
 
     quarkDie(pan = 0) {
@@ -285,7 +324,7 @@
     },
 
     hulkHit(pan = 0) {
-      this.fire("ui", pan);
+      this.fire("hulk", pan);
     },
 
     enforcerShot(pan = 0) {
