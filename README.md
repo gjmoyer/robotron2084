@@ -89,10 +89,40 @@ Touch a human to save — chain 1000 → 2000 → 3000 → 4000 → 5000. Green 
 | **8** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids |
 | **9** | 60 Grunts, no electrodes, 4 Hulks, 3 of each family, 5 Spheroids |
 | **10** | 25 Grunts, 20 electrodes, 20 Brains, 22 Daddies, 1 Spheroid |
+| **11** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids |
+| **12** | 12 Quarks, Tanks, 13 Hulks, 3 of each family, no Grunts or electrodes |
+| **13** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids |
+| **14** | 27 Grunts, 5 electrodes, 20 Hulks, 5 of each family, 2 Spheroids |
+| **15** | 25 Grunts, 20 electrodes, 20 Brains, 22 Mikeys, 2 Hulks, 1 Spheroid |
+| **16** | 35 Grunts, 25 electrodes, 3 Hulks, 3 of each family, 5 Spheroids |
+| **17** | 12 Quarks, Tanks, 14 Hulks, 3 of each family, no Grunts or electrodes |
+| **18** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids |
+| **19** | 70 Grunts, no electrodes, 3 Hulks, 3 of each family, 5 Spheroids |
+| **20** | 25 Grunts, 20 electrodes, 20 Brains, 8 of each family, 2 Hulks, 2 Spheroids |
+| **21** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids |
+| **22** | 12 Quarks, Tanks, 15 Hulks, 3 of each family, no Grunts or electrodes |
+| **23** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids |
+| **24** | 6 Spheroids + 7 Quarks (Double Trouble), 13 Hulks, 3 of each family, no Grunts or electrodes |
+| **25** | 25 Grunts, 20 electrodes, 21 Brains, 25 Mommies + Mikey, 1 Hulk, 1 Spheroid |
+| **26** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids |
+| **27** | 12 Quarks, Tanks, 16 Hulks, 3 of each family, no Grunts or electrodes |
+| **28** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids + 1 Quark |
+| **29** | 75 Grunts, no electrodes, 4 Hulks, 3 of each family, 5 Spheroids + 1 Quark |
+| **30** | 25 Grunts, 20 electrodes, 22 Brains, 25 Daddies, 1 Hulk, 1 Spheroid + 1 Quark |
+| **31** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids + 1 Quark |
+| **32** | 13 Quarks, Tanks, 16 Hulks, 3 of each family, no Grunts or electrodes |
+| **33** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids + 1 Quark |
+| **34** | 30 Grunts, no electrodes, 25 Hulks, 3 of each family, 2 Spheroids + 2 Quarks |
+| **35** | 27 Grunts, 15 electrodes, 23 Brains, 25 Mikeys, 2 Hulks, 1 Spheroid + 2 Quarks |
+| **36** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids + 2 Quarks |
+| **37** | 14 Quarks, Tanks, 16 Hulks, 3 of each family, no Grunts or electrodes |
+| **38** | 35 Grunts, 25 electrodes, 8 Hulks, 3 of each family, 5 Spheroids + 2 Quarks |
+| **39** | 80 Grunts, no electrodes, 6 Hulks, 3 of each family, 5 Spheroids + 1 Quark |
+| **40** | 30 Grunts, 15 electrodes, 25 Brains, 10 of each family, 2 Hulks, 1 Spheroid + 1 Quark |
 
 Hulks cannot be killed. Spheroids hatch Enforcers; Quarks hatch Tanks. Kill the spawners first.
 
-Clearing wave 10 is the end of the **mapped** campaign for now — you get an *end of transmission* card, not a fake victory. More waves are still to be built.
+Clearing wave 40 doesn't end the war — waves 21–40 repeat with rising intensity through wave 255, then wrap to 1. Game over only when your lives run out.
 
 ---
 

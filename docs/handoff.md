@@ -4,13 +4,13 @@ Read this first in a new session. Design rules and the wave-1–40 table live in
 
 ## Snapshot (end of 2026-08-23 session)
 
-- **Playable:** waves **1–10**, then the unfinished-war end card (`END OF TRANSMISSION` / *2084 is not saved — yet*). Not a simple “sector clear.”
+- **Playable:** full game — waves **1–40** unique, then 21–40 repeats with a per-cycle ramp through **255**, then wraps to 1. Game ends only on lives-out (`GAME OVER`); the `CLEAR`/`END OF TRANSMISSION` card is unreachable in normal play.
 - **Systems in:** Grunt, electrode, Hulk, family, Spheroid, Enforcer, spark, Brain, Prog, cruise missile, Quark, Tank, bouncing shell, splashy wave wipe.
 - **Stack:** static HTML/CSS/JS. `python3 -m http.server 8765` → http://localhost:8765
 - **Repo:** https://github.com/gjmoyer/robotron2084
 - **Constraint:** original work only. No Williams ROM binaries, MAME samples, or ripped sprites.
 
-`MAX_WAVE` in `src/game.js` is `10`. Raising it without a `WAVES[n]` object breaks the intermission.
+`MAX_WAVE` in `src/game.js` is `255` (`UNIQUE_WAVES 40`, `LOOP_BASE 21`, `LOOP_LEN 20`). `waveSpec()` resolves the loop and applies the cycle ramp; `waveSpecFor(n)` previews any wave (used by the TRANS wipe). Raising `MAX_WAVE` without a `WAVES[n]` object breaks the intermission — for n > 40 the object comes from the loop base.
 
 ## File map
 
@@ -120,9 +120,7 @@ High score: `localStorage.robotron2084_hs`. Chain persists across waves; resets 
 
 ## Next session
 
-**Wave 11** (normal, no new entities): 35 Grunts, 25 electrodes, 3 Mommy / 3 Daddy / 3 Mikey, 8 Hulks, 5 Spheroids.
-
-Then data-drive 12–40 from the table (Tank 12, Hulk 14, …).
+All 40 unique waves + the 255 loop are done. Remaining from `requirements.md` §12: attract mode, 2-player alternate, initials on high score, operator extra-life options, optional Bozo mercy on waves 1–4.
 
 ## References (spec only — do not vendor binaries)
 
