@@ -12,7 +12,7 @@
 
   const HS_KEY = "robotron2084_hs";
   const HS_KEY_OLD = "robotron2084_wave1_hs";
-  const MAX_WAVE = 7;
+  const MAX_WAVE = 10;
 
   const WAVES = [
     null,
@@ -187,6 +187,80 @@
       tankMul: 0.55,
       shellMul: 0.4,
       subtitle: "TANK WAVE — CLEAR THE QUARKS",
+    },
+    {
+      grunts: 35,
+      electrodes: 25,
+      mommy: 3,
+      daddy: 3,
+      mikey: 3,
+      hulks: 8,
+      spheroids: 5,
+      brains: 0,
+      electrodeStyle: "x",
+      electrodeHue: 20,
+      gruntMul: 1.58,
+      humans: 9,
+      hatchFirst: 1.65,
+      hatchNext: 0.88,
+      quotaMin: 4,
+      quotaMax: 6,
+      fireMin: 0.44,
+      fireMax: 0.78,
+      enforcerCap: 6,
+      enforcerMul: 0.92,
+      sparkMul: 0.6,
+      subtitle: "NO RESPITE",
+    },
+    {
+      grunts: 60,
+      electrodes: 0,
+      mommy: 3,
+      daddy: 3,
+      mikey: 3,
+      hulks: 4,
+      spheroids: 5,
+      brains: 0,
+      electrodeStyle: "plus",
+      electrodeHue: 150,
+      gruntMul: 1.62,
+      humans: 9,
+      hatchFirst: 1.65,
+      hatchNext: 0.88,
+      quotaMin: 4,
+      quotaMax: 6,
+      fireMin: 0.44,
+      fireMax: 0.78,
+      enforcerCap: 6,
+      enforcerMul: 0.92,
+      sparkMul: 0.6,
+      subtitle: "THE SWARM",
+    },
+    {
+      grunts: 25,
+      electrodes: 20,
+      mommy: 0,
+      daddy: 22,
+      mikey: 0,
+      hulks: 0,
+      spheroids: 1,
+      brains: 20,
+      electrodeStyle: "diamond",
+      electrodeHue: 240,
+      gruntMul: 1.45,
+      humans: 22,
+      hatchFirst: 1.9,
+      hatchNext: 1.05,
+      quotaMin: 3,
+      quotaMax: 5,
+      fireMin: 0.52,
+      fireMax: 0.9,
+      enforcerCap: 4,
+      enforcerMul: 0.82,
+      sparkMul: 0.54,
+      brainMul: 0.78,
+      missileMul: 0.42,
+      subtitle: "BRAIN WAVE — SAVE THE DADDIES",
     },
   ];
 
@@ -1999,7 +2073,7 @@
 
       ctx.fillStyle = "#ffe56a";
       ctx.font = "700 20px Orbitron, sans-serif";
-      ctx.fillText("WAVES 1–7", w / 2, h * 0.18 + Math.min(118, w * 0.095));
+      ctx.fillText("WAVES 1–10", w / 2, h * 0.18 + Math.min(118, w * 0.095));
 
       ctx.fillStyle = "rgba(255,255,255,0.82)";
       ctx.font = "16px 'Share Tech Mono', monospace";

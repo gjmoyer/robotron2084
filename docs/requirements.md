@@ -164,7 +164,7 @@ On wave complete the original: increments wave number, plays `WVSND` (command `$
 
 ## 7. Entity behavior (what to implement)
 
-### Implemented (waves 1–7)
+### Implemented (waves 1–10)
 
 | Entity | Touch player | Shot | Electrode | Notes |
 |--------|--------------|------|-----------|--------|
@@ -184,11 +184,11 @@ On wave complete the original: increments wave number, plays `WVSND` (command `$
 
 Spheroid / Enforcer / Tank fire rates for waves 2–7 are **intentionally milder** than late arcade. Do not restore machine-gun values.
 
-### Not implemented (wave 8+)
+### Not implemented (wave 10+)
 
 Special layouts still to data-drive from §3:
 
-- **Grunt Swarm** (9, 19, 29…) — 60–80 Grunts, 0 electrodes.
+- **Grunt Swarm** (19, 29…) — 70–80 Grunts, 0 electrodes (9 done).
 - **Hulk wave** (14, 34…) — 20–25 Hulks around the player.
 - **Double Trouble** (24, 44…) — Spheroids **and** Quarks together, 0 Grunts, 0 electrodes.
 - Later Brain / Tank waves reuse existing Brain and Tank systems with bigger counts.
@@ -271,10 +271,10 @@ Unofficial fan remake. Not affiliated with Williams, Vid Kidz, Midway, or Warner
 
 ## 12. Suggested build order from here
 
-Waves **1–7** and all of their unique systems (Brain, Prog, missile, Quark, Tank, shell) are in. Next:
+Waves **1–10** and all of their unique systems (Brain, Prog, missile, Quark, Tank, shell) are in. Next:
 
-1. **Wave 8** — normal (35 Grunts, 25 electrodes, 8 Hulks, 5 Spheroids, 3 of each family). No new entities.
-2. Data-drive **waves 9–40** from the §3 table (grunt swarm, Brain Daddy, more Tank waves, Hulk wave, Double Trouble).
+1. **Wave 11** — normal (35 Grunts, 25 electrodes, 8 Hulks, 5 Spheroids, 3 of each family). No new entities.
+2. Data-drive **waves 12–40** from the §3 table (Tank 12, Hulk wave 14, Double Trouble 24).
 3. After wave 40, wrap 21–40 with a difficulty multiplier through 255.
 4. Attract mode, 2-player alternate, initials on high score, operator extra-life options.
 5. Optional Bozo mercy on waves 1–4.

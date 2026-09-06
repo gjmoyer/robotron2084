@@ -4,13 +4,13 @@ Read this first in a new session. Design rules and the wave-1–40 table live in
 
 ## Snapshot (end of 2026-08-23 session)
 
-- **Playable:** waves **1–7**, then the unfinished-war end card (`END OF TRANSMISSION` / *2084 is not saved — yet*). Not a simple “sector clear.”
+- **Playable:** waves **1–10**, then the unfinished-war end card (`END OF TRANSMISSION` / *2084 is not saved — yet*). Not a simple “sector clear.”
 - **Systems in:** Grunt, electrode, Hulk, family, Spheroid, Enforcer, spark, Brain, Prog, cruise missile, Quark, Tank, bouncing shell, splashy wave wipe.
 - **Stack:** static HTML/CSS/JS. `python3 -m http.server 8765` → http://localhost:8765
 - **Repo:** https://github.com/gjmoyer/robotron2084
 - **Constraint:** original work only. No Williams ROM binaries, MAME samples, or ripped sprites.
 
-`MAX_WAVE` in `src/game.js` is `7`. Raising it without a `WAVES[n]` object breaks the intermission.
+`MAX_WAVE` in `src/game.js` is `10`. Raising it without a `WAVES[n]` object breaks the intermission.
 
 ## File map
 
@@ -115,14 +115,14 @@ High score: `localStorage.robotron2084_hs`. Chain persists across waves; resets 
 ## Debug
 
 - `?autostart` — start wave 1 after load.
-- `window.__game` — `waveNum = 7; buildWave(); setState("intro")`.
+- `window.__game` — `waveNum = 10; buildWave(); setState("intro")`.
 - Local server often binds IPv6; use `localhost` not `127.0.0.1`.
 
 ## Next session
 
-**Wave 8** (no new entities): 35 Grunts, 25 electrodes, 3 Mommy / 3 Daddy / 3 Mikey, 8 Hulks, 5 Spheroids.
+**Wave 11** (normal, no new entities): 35 Grunts, 25 electrodes, 3 Mommy / 3 Daddy / 3 Mikey, 8 Hulks, 5 Spheroids.
 
-Then data-drive 9–40 from the table (grunt swarm 9, Brain Daddy 10, Tank 12, Hulk 14, …).
+Then data-drive 12–40 from the table (Tank 12, Hulk 14, …).
 
 ## References (spec only — do not vendor binaries)
 
