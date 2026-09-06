@@ -68,6 +68,7 @@ Then go to [http://localhost:8765](http://localhost:8765) and press **F** for fu
 | **Mouse** | — | Click toggles sticky aim, move to steer, right-click clears |
 
 **Start** — Space, Enter, click, or gamepad A / Start  
+**Dash** — Shift, gamepad LB / RB (or stick-click), or double-tap WASD — 0.18s burst + i-frames, 2.5s cooldown  
 **Pause** — Esc (shows controls + options)  
 **Fullscreen** — F  
 **T** — Autofire (keeps firing last direction) · **E** — Easy / Arcade · **M** — Mute · **V** — Low-FX (less shake/flash) · **N** — Scanlines on/off

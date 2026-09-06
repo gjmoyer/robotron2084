@@ -87,8 +87,14 @@
     dualPad: false,
     startEdge: false,
     pauseEdge: false,
+    dashEdge: false,
     _startWas: false,
     _pauseWas: false,
+    _dashWas: false,
+    _lastTapT: 0,
+    _lastTapX: 0,
+    _lastTapY: 0,
+    _doubleTapDash: false,
     _clickStart: false,
     startLatch: false,
     pauseLatch: false,
@@ -106,6 +112,18 @@
         if (e.code === "KeyE") this.togglePref("difficulty");
         if (e.code === "KeyV") this.togglePref("lowfx");
         if (e.code === "KeyN") this.togglePref("scanlines");
+        // double-tap a move key = dash (same direction twice within 300ms)
+        if (KEY_MOVE[e.code]) {
+          const now = performance.now();
+          const v = KEY_MOVE[e.code];
+          const dtTap = now - (this._lastTapT || 0);
+          if (dtTap < 300 && v[0] * this._lastTapX + v[1] * this._lastTapY > 0.5) {
+            this._doubleTapDash = true;
+          }
+          this._lastTapT = now;
+          this._lastTapX = v[0];
+          this._lastTapY = v[1];
+        }
         if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
           e.preventDefault();
         }
@@ -190,6 +208,14 @@
       return false;
     },
 
+    consumeDash() {
+      if (this.dashEdge) {
+        this.dashEdge = false;
+        return true;
+      }
+      return false;
+    },
+
     update() {
       let mx = 0, my = 0, sx = 0, sy = 0;
 
@@ -263,14 +289,23 @@
 
       let start = !!(this.keys.Space || this.keys.Enter || this.keys.KeyF);
       let pause = !!(this.keys.Escape || this.keys.KeyP);
+      let dash = !!(this.keys.ShiftLeft || this.keys.ShiftRight);
       for (const pad of pads) {
         if (pad.buttons[0]?.pressed || pad.buttons[9]?.pressed) start = true;
         if (pad.buttons[8]?.pressed) pause = true;
+        // LB / RB / stick-clicks = dash; left/right triggers stay analog-free
+        if (pad.buttons[4]?.pressed || pad.buttons[5]?.pressed || pad.buttons[10]?.pressed || pad.buttons[11]?.pressed) dash = true;
+      }
+      if (this._doubleTapDash) {
+        dash = true;
+        this._doubleTapDash = false;
       }
       this.startEdge = start && !this._startWas;
       this.pauseEdge = pause && !this._pauseWas;
+      this.dashEdge = dash && !this._dashWas;
       this._startWas = start;
       this._pauseWas = pause;
+      this._dashWas = dash;
     },
   };
 

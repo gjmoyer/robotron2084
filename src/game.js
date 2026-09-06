@@ -9,6 +9,10 @@
       if (window.Input.mouseSeen === undefined) window.Input.mouseSeen = false;
       if (window.Input.lastAimX === undefined) window.Input.lastAimX = 0;
       if (window.Input.lastAimY === undefined) window.Input.lastAimY = -1;
+      if (window.Input.dashEdge === undefined) window.Input.dashEdge = false;
+      if (typeof window.Input.consumeDash !== "function") {
+        window.Input.consumeDash = function () { return false; };
+      }
     }
   } catch (_) {}
   const STATE = {
@@ -698,6 +702,10 @@
         invuln: 2.05 + easy,
         alive: true,
         spawn: 1,
+        dashCd: 0,
+        dashT: 0,
+        dashDX: 0,
+        dashDY: -1,
       };
       // keep materialize effect on wave build, instant-ish on respawn handled by caller
       if (center && this.stateTime < 0.1 && this.waveTime === 0) this.player.spawn = 0;
@@ -938,10 +946,50 @@
       const speed = m * 0.64;
       const ix = Input.moveX;
       const iy = Input.moveY;
-      p.vx = ix * speed;
-      p.vy = iy * speed;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+      // dash: 0.18s burst at 2.3x + i-frames, 2.5s cooldown. Direction falls
+      // back from move stick to aim to current velocity so it never whiffs.
+      p.dashCd = Math.max(0, (p.dashCd || 0) - dt);
+      p.dashT = Math.max(0, (p.dashT || 0) - dt);
+      if (Input.consumeDash() && p.dashCd <= 0) {
+        let dx = ix;
+        let dy = iy;
+        if (Math.hypot(dx, dy) < 0.15) {
+          dx = p.aimX;
+          dy = p.aimY;
+        }
+        if (Math.hypot(dx, dy) < 0.15) {
+          dx = p.vx;
+          dy = p.vy;
+        }
+        const [ddx, ddy] = norm(dx, dy);
+        if (Math.hypot(ddx, ddy) > 0.01) {
+          p.dashDX = ddx;
+          p.dashDY = ddy;
+          p.dashT = 0.18;
+          p.dashCd = 2.5;
+          p.invuln = Math.max(p.invuln, 0.28);
+          p.face = facingFrom(ddx, ddy);
+          const pan = ((p.x - this.arena.x) / this.arena.w) * 2 - 1;
+          AudioFX.dash(pan);
+          Input.rumble(60, 0.25, 0.5);
+          FX.ring(p.x, p.y, "#7ef6ff", 0.3);
+          FX.burst(p.x, p.y, "#7ef6ff", 14, 320, 2.6, 0.3);
+          FX.light(p.x, p.y, "rgba(126,246,255,0.9)", m * 0.14, 0.25);
+        }
+      }
+      if (p.dashT > 0) {
+        const dspeed = speed * 2.3;
+        p.vx = p.dashDX * dspeed;
+        p.vy = p.dashDY * dspeed;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        FX.burst(p.x, p.y, "#7ef6ff", 2, 120, 2.4, 0.25);
+      } else {
+        p.vx = ix * speed;
+        p.vy = iy * speed;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      }
       this.clampEntity(p);
 
       let ax = Input.shootX;
@@ -964,7 +1012,7 @@
         p.face = facingFrom(ix, iy);
       }
 
-      const moving = Math.hypot(ix, iy) > 0.12;
+      const moving = Math.hypot(ix, iy) > 0.12 || p.dashT > 0;
       p.anim += dt * (moving ? 8.5 : 0);
 
       this.fireCd -= dt;
@@ -2259,11 +2307,12 @@
       ctx.font = "700 13px Orbitron, sans-serif";
       const cols = [
         ["MOVE", "WASD / LEFT STICK", "#7ef6ff"],
-        ["FIRE", "ARROWS / IJKL / RIGHT STICK", "#ff7ae0"],
-        ["AIM-CLICK", "CLICK TOGGLES MOUSE FIRE", "#ffe56a"],
+        ["FIRE", "ARROWS / IJKL / R-STICK", "#ff7ae0"],
+        ["DASH", "SHIFT / LB / 2x TAP", "#7dff9a"],
+        ["MOUSE", "CLICK TOGGLES FIRE", "#ffe56a"],
       ];
       cols.forEach((c, i) => {
-        const px = w / 2 + (i - 1) * (cw / 3);
+        const px = w / 2 + (i - 1.5) * (cw / 4);
         ctx.fillStyle = "#8a95a5";
         ctx.fillText(c[0], px, cy + 26);
         ctx.fillStyle = c[2];
@@ -2329,7 +2378,40 @@
             ctx.fillStyle = `hsla(${hue}, 90%, 55%, 0.06)`;
             ctx.fillRect(x, y, w, h);
           }
-        } catch (_) {}
+  } catch (_) {}
+  // Compat: if a stale cached fx.js predates debris/light/wallRipple, polyfill
+  // them so kill effects degrade instead of throwing. Bump ?v= in index.html
+  // forces a refetch going forward.
+  try {
+    if (window.FX) {
+      if (typeof window.FX.lowfx !== "function") {
+        window.FX.lowfx = function () { return false; };
+      }
+      if (typeof window.FX.light !== "function") {
+        window.FX.light = function () {};
+      }
+      if (typeof window.FX.wallRipple !== "function") {
+        window.FX.wallRipple = function (x, y, color) {
+          if (typeof this.ring === "function") this.ring(x, y, color || "#7ef6ff", 0.28);
+        };
+      }
+      if (typeof window.FX.debris !== "function") {
+        window.FX.debris = function (x, y, colors, n, speed, life) {
+          const list = Array.isArray(colors) ? colors : [colors];
+          if (typeof this.burst === "function") {
+            this.burst(x, y, list[0] || "#ffffff", n || 10, speed || 260, 3.2, life || 0.5);
+          }
+        };
+      }
+      if (typeof window.FX.cone !== "function") {
+        window.FX.cone = function (x, y, ang, color, n, speed, spread, life) {
+          if (typeof this.burst === "function") {
+            this.burst(x, y, color, n || 10, speed || 340, 2.5, life || 0.32);
+          }
+        };
+      }
+    }
+  } catch (_) {}
       }
 
       const step = Math.max(48, this.minDim * 0.055);
@@ -2501,7 +2583,8 @@
           const moving = Math.hypot(p.vx, p.vy) > 8;
           const img = this.spriteFor("player", p.face, moving, Math.floor(p.anim));
           let flick = 1;
-          if (p.invuln > 0) flick = Math.sin(this.time * 28) > 0 ? 1 : 0.25;
+          // dash stays solid so the burst reads; spawn invuln still flickers
+          if (p.invuln > 0 && !(p.dashT > 0)) flick = Math.sin(this.time * 28) > 0 ? 1 : 0.25;
           const bob = moving ? Math.abs(Math.sin(p.anim * Math.PI)) * m * 0.007 : 0;
           this.drawSprite(ctx, img, p.x, p.y, m * 0.13, p.spawn, flick, bob);
           const aiming = Math.hypot(p.aimX, p.aimY) > 0.2 && (Math.hypot(Input.shootX, Input.shootY) > 0.22 || Input.mouseAim || Input.stickyAim || Input.prefs?.autofire);
@@ -3029,6 +3112,8 @@
       chip(`HOSTILES ${String(left).padStart(2, "0")}`, left === 0 ? "#7dff9a" : "#ff6a6a");
       chip(`SAVED ${this.rescued}/${need}`, "#ff9ac6");
       chip(`CHAIN ${this.humanChain}x NEXT ${this.chainNext()}`, "#ffe56a");
+      const dashCd = this.player ? this.player.dashCd || 0 : 0;
+      chip(dashCd <= 0 ? "DASH READY" : `DASH ${dashCd.toFixed(1)}`, dashCd <= 0 ? "#7ef6ff" : "#5a6a7a");
       const sph = this.spheroids.filter((s) => s.alive).length;
       const enf = this.enforcerCount();
       const brn = this.brains.filter((b) => b.alive).length;
@@ -3214,7 +3299,7 @@
       ctx.fillStyle = "#fff";
       ctx.font = "15px 'Share Tech Mono', monospace";
       ctx.fillText("MOVE WASD / LEFT STICK      FIRE ARROWS / IJKL / RIGHT STICK", w / 2, h * 0.40);
-      ctx.fillText("CLICK TOGGLES STICKY MOUSE-AIM  ·  RIGHT-CLICK CLEARS  ·  F FULLSCREEN", w / 2, h * 0.44);
+      ctx.fillText("DASH SHIFT / LB-RB / DOUBLE-TAP WASD  ·  CLICK TOGGLES STICKY-AIM  ·  F FULLSCREEN", w / 2, h * 0.44);
       const p = Input.prefs || {};
       ctx.fillStyle = "#ffe56a";
       ctx.font = "14px 'Share Tech Mono', monospace";

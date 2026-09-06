@@ -295,25 +295,33 @@ def scream() -> list[int]:
 
 def organ_ninth() -> list[int]:
     """Popcount organ, Beethoven 9th motif (wave-start signature)."""
-    # (mask, delay_nops, duration_ticks) — delay smaller = higher pitch
+    # (mask, delay_nops, duration_ticks) — delay smaller = higher pitch.
+    # All pitched notes share mask 0x22 (bits 1+5): bit0 in the old 0x11
+    # notes toggled every count and aliased to a ~2.1kHz beep a full octave
+    # above the ~0.9kHz body. Pitch contour now comes from delay alone.
+    # DAC is centered on 128 (was pop<<5 = 0/32/64, i.e. full-scale DC);
+    # the rest note is digital silence.
     notes = [
-        (0x11, 18, 18),
-        (0x11, 18, 18),
-        (0x11, 18, 18),
+        (0x22, 18, 18),
+        (0x22, 18, 18),
+        (0x22, 18, 18),
         (0x22, 28, 48),
         (0x00, 20, 8),
         (0x22, 26, 18),
         (0x22, 26, 18),
         (0x22, 26, 18),
-        (0x11, 20, 48),
+        (0x22, 20, 48),
     ]
     out: list[int] = []
     counter = 0
     for mask, delay, dur in notes:
         sample_cy = 70 + delay * 2
         for _ in range(dur * 40):
-            pop = bin(counter & mask).count("1")
-            dac = u8(pop << 5)
+            if mask == 0:
+                dac = 128
+            else:
+                pop = bin(counter & mask).count("1")
+                dac = u8(128 + (pop - 1) * 32)
             out.extend([dac] * sample_cy)
             counter = u8(counter + 1)
     return out

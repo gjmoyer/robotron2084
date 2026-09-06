@@ -12,6 +12,9 @@
     scream: "assets/sounds/scream.wav",
     appear: "assets/sounds/appear.wav",
     ninth: "assets/sounds/ninth.wav",
+    saw: "assets/sounds/vari_saw.wav",
+    quasar: "assets/sounds/vari_quasar.wav",
+    cscale: "assets/sounds/vari_cscale.wav",
     bg0: "assets/sounds/bg0.wav",
     bg1: "assets/sounds/bg1.wav",
     bg2: "assets/sounds/bg2.wav",
@@ -30,6 +33,9 @@
     bgIndex: -1,
     timers: [],
     _lastTick: -1000,
+    // Bump when a wav is regenerated or game.js ?v= is bumped, so the
+    // browser refetches sounds instead of decoding stale cached copies.
+    assetV: "?v=5",
 
     async load() {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -50,7 +56,7 @@
       const entries = Object.entries(FILES);
       await Promise.all(
         entries.map(async ([key, url]) => {
-          const res = await fetch(url);
+          const res = await fetch(url + this.assetV);
           const raw = await res.arrayBuffer();
           this.buffers[key] = await this.ctx.decodeAudioData(raw.slice(0));
         })
@@ -98,15 +104,32 @@
       }
     },
 
-    _play(name, pan = 0, when = 0) {
+    _play(name, pan = 0, when = 0, dur = 0) {
       if (!this.ready || !this.buffers[name]) return;
       const src = this.ctx.createBufferSource();
       src.buffer = this.buffers[name];
       const panner = this.ctx.createStereoPanner();
       panner.pan.value = Math.max(-0.8, Math.min(0.8, pan));
+      const t = this.ctx.currentTime + when;
+      // dur caps long renders (e.g. VARI sweeps) on frequent events — the
+      // original board preempted tails via IRQ; here we fade instead of click.
+      if (dur > 0 && dur < src.buffer.duration) {
+        const g = this.ctx.createGain();
+        const fade = Math.min(0.05, dur * 0.25);
+        g.gain.setValueAtTime(1, t);
+        g.gain.setValueAtTime(1, Math.max(t, t + dur - fade));
+        g.gain.linearRampToValueAtTime(0, t + dur);
+        src.connect(g);
+        g.connect(panner);
+        panner.connect(this.master);
+        src.start(t);
+        try {
+          src.stop(t + dur + 0.02);
+        } catch (_) {}
+        return src;
+      }
       src.connect(panner);
       panner.connect(this.master);
-      const t = this.ctx.currentTime + when;
       src.start(t);
       return src;
     },
@@ -201,6 +224,8 @@
 
     waveFanfare() {
       this._play("ninth");
+      // CSCALE ascending layer, cut to fit the 1.7s fanfare window before waveStart
+      this._play("cscale", 0, 0, 1.5);
     },
 
     ui() {
@@ -211,8 +236,14 @@
       this.fire("appear");
     },
 
+    dash(pan = 0) {
+      // evasive burst whoosh — layered voice so it never cuts rescue/death
+      this._play("turbo", pan);
+    },
+
     hatchPop() {
-      this._play("appear");
+      // VARI QUASAR attack cut — alien wobble for Enforcer/Tank hatches
+      this._play("quasar", 0, 0, 0.5);
     },
 
     brainFire(pan = 0) {
@@ -258,7 +289,9 @@
     },
 
     enforcerShot(pan = 0) {
-      this._play("ui", pan);
+      // ENFSND $1D VARI SAW, attack cut: the full 1.9s sweep would stack
+      // across volleys on the layered slot, so play the opening snarl only.
+      this._play("saw", pan, 0, 0.32);
     },
 
     spheroidDie(pan = 0) {
