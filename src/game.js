@@ -1191,6 +1191,22 @@
     return "w";
   }
 
+  // 8-way facing for the player so move/shoot diagonals get their own look.
+  // Sectors are centered on each compass point (y-down: +y = south).
+  function facing8From(x, y) {
+    if (Math.abs(x) < 0.01 && Math.abs(y) < 0.01) return "s";
+    const a = Math.atan2(y, x);
+    const deg = (a * 180) / Math.PI;
+    if (deg >= -22.5 && deg < 22.5) return "e";
+    if (deg >= 22.5 && deg < 67.5) return "se";
+    if (deg >= 67.5 && deg < 112.5) return "s";
+    if (deg >= 112.5 && deg < 157.5) return "sw";
+    if (deg >= 157.5 || deg < -157.5) return "w";
+    if (deg >= -157.5 && deg < -112.5) return "nw";
+    if (deg >= -112.5 && deg < -67.5) return "n";
+    return "ne";
+  }
+
   function rand(a, b) {
     return a + Math.random() * (b - a);
   }
@@ -2282,7 +2298,7 @@
           p.x += nx * m * 0.45 * dt;
           p.y += ny * m * 0.45 * dt;
           this.clampEntity(p);
-          p.face = facingFrom(nx, ny);
+          p.face = facing8From(nx, ny);
           p.anim += dt * 8;
         }
       }
@@ -2466,7 +2482,7 @@
           p.dashT = 0.18;
           p.dashCd = 2.5;
           p.invuln = Math.max(p.invuln, 0.28);
-          p.face = facingFrom(ddx, ddy);
+          p.face = facing8From(ddx, ddy);
           const pan = ((p.x - this.arena.x) / this.arena.w) * 2 - 1;
           AudioFX.dash(pan);
           Input.rumble(60, 0.25, 0.5);
@@ -2505,9 +2521,9 @@
       if (Math.hypot(ax, ay) > 0.2) {
         p.aimX = ax;
         p.aimY = ay;
-        p.face = facingFrom(ax, ay);
+        p.face = facing8From(ax, ay);
       } else if (Math.hypot(ix, iy) > 0.15) {
-        p.face = facingFrom(ix, iy);
+        p.face = facing8From(ix, iy);
       }
 
       const moving = Math.hypot(ix, iy) > 0.12 || p.dashT > 0;
@@ -3630,10 +3646,12 @@
     spriteFor(kind, face, walking, frame) {
       const s = this.sprites;
       if (kind === "player") {
-        if (walking && face === "s") return frame % 2 === 0 ? s.player_s_w0 : s.player_s_w1;
         if (face === "e") return s.player_e;
         if (face === "w") return s.player_w;
-        if (face === "n") return s.player_n;
+        // up-diagonals reuse the back view (no walk frames exist for it)
+        if (face === "n" || face === "ne" || face === "nw") return s.player_n;
+        // s + down-diagonals share the front view (walk frames when moving)
+        if (walking) return frame % 2 === 0 ? s.player_s_w0 : s.player_s_w1;
         return s.player_s;
       }
       if (kind === "grunt") {
@@ -4163,7 +4181,19 @@
           // dash stays solid so the burst reads; spawn invuln still flickers
           if (p.invuln > 0 && !(p.dashT > 0)) flick = Math.sin(this.time * 28) > 0 ? 1 : 0.25;
           const bob = moving ? Math.abs(Math.sin(p.anim * Math.PI)) * m * 0.007 : 0;
-          this.drawSprite(ctx, img, p.x, p.y, m * 0.13, p.spawn, flick, bob);
+          // Diagonals reuse N/S art: mirror so the gun sits on the aim side
+          // and lean into the horizontal component so NE/NW/SE/SW read apart.
+          let flipH = false;
+          let tilt = 0;
+          if (p.face === "ne") tilt = 0.2;
+          else if (p.face === "nw") {
+            flipH = true;
+            tilt = -0.2;
+          } else if (p.face === "se") {
+            flipH = true;
+            tilt = 0.2;
+          } else if (p.face === "sw") tilt = -0.2;
+          this.drawSprite(ctx, img, p.x, p.y, m * 0.13, p.spawn, flick, bob, flipH, tilt);
           const aiming = Math.hypot(p.aimX, p.aimY) > 0.2 && (Math.hypot(Input.shootX, Input.shootY) > 0.22 || Input.mouseAim || Input.stickyAim || Input.prefs?.autofire);
           if (aiming) {
             this.renderAim(ctx, p);
