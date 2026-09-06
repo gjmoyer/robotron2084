@@ -65,11 +65,14 @@ Then go to [http://localhost:8765](http://localhost:8765) and press **F** for fu
 | **Gamepad** | Left stick | Right stick (360°) |
 | **Two joysticks** | Stick 1 | Stick 2 |
 | **Keyboard** | WASD | Arrow keys or IJKL |
-| **Mouse** | — | Click-aim |
+| **Mouse** | — | Click toggles sticky aim, move to steer, right-click clears |
 
 **Start** — Space, Enter, click, or gamepad A / Start  
-**Pause** — Esc  
-**Fullscreen** — F
+**Pause** — Esc (shows controls + options)  
+**Fullscreen** — F  
+**T** — Autofire (keeps firing last direction) · **E** — Easy / Arcade · **M** — Mute · **V** — Low-FX (less shake/flash) · **N** — Scanlines on/off
+
+Touch a human to save — chain 1000 → 2000 → 3000 → 4000 → 5000. Green Hulks can't be killed. Orange shots are always enemy. `HELP!` means a Brain is converting someone.
 
 ### Waves in this build
 

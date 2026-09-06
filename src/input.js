@@ -32,6 +32,36 @@
     return [x, y];
   }
 
+  const Prefs = {
+    key: "robotron2084_prefs_v1",
+    data: { autofire: false, muted: false, lowfx: false, scanlines: true, difficulty: "arcade" },
+    load() {
+      try {
+        const raw = localStorage.getItem(this.key);
+        if (raw) Object.assign(this.data, JSON.parse(raw));
+      } catch (_) {}
+      // migrate old scanline pref if lowfx on
+      if (this.data.lowfx) this.data.scanlines = false;
+      return this.data;
+    },
+    save() {
+      try {
+        localStorage.setItem(this.key, JSON.stringify(this.data));
+      } catch (_) {}
+    },
+    toggle(name) {
+      if (name === "difficulty") {
+        this.data.difficulty = this.data.difficulty === "easy" ? "arcade" : "easy";
+      } else {
+        this.data[name] = !this.data[name];
+        if (name === "lowfx" && this.data.lowfx) this.data.scanlines = false;
+      }
+      this.save();
+      return this.data[name] !== undefined ? this.data[name] : this.data.difficulty;
+    },
+  };
+  Prefs.load();
+
   const Input = {
     keys: Object.create(null),
     moveX: 0,
@@ -42,6 +72,16 @@
     mouseX: 0,
     mouseY: 0,
     mouseAim: false,
+    stickyAim: false,
+    mouseSeen: false,
+    lastAimX: 0,
+    lastAimY: -1,
+    prefs: Prefs.data,
+    togglePref(name) {
+      const v = Prefs.toggle(name);
+      if (name === "muted" && window.AudioFX) window.AudioFX.applyMute();
+      return v;
+    },
     padName: "",
     padCount: 0,
     dualPad: false,
@@ -60,6 +100,12 @@
         this.keys[e.code] = true;
         if (e.code === "Space" || e.code === "Enter") this.startLatch = true;
         if (e.code === "Escape" || e.code === "KeyP") this.pauseLatch = true;
+        // playability toggles (work anywhere, no repeat)
+        if (e.code === "KeyM") this.togglePref("muted");
+        if (e.code === "KeyT") this.togglePref("autofire");
+        if (e.code === "KeyE") this.togglePref("difficulty");
+        if (e.code === "KeyV") this.togglePref("lowfx");
+        if (e.code === "KeyN") this.togglePref("scanlines");
         if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
           e.preventDefault();
         }
@@ -74,13 +120,29 @@
         const r = canvas.getBoundingClientRect();
         this.mouseX = e.clientX - r.left;
         this.mouseY = e.clientY - r.top;
+        this.mouseSeen = true;
       });
       canvas.addEventListener("mousedown", (e) => {
         if (e.button === 0) {
           this.mouseAim = true;
           this._clickStart = true;
+          // click toggles sticky aim during play so holding is not required
+          const g = window.__game;
+          if (g && (g.state === "play" || g.state === "intro")) {
+            this.stickyAim = !this.stickyAim;
+            // if turning sticky on without prior mouse move, aim where clicked
+            const r = canvas.getBoundingClientRect();
+            this.mouseX = e.clientX - r.left;
+            this.mouseY = e.clientY - r.top;
+            this.mouseSeen = true;
+          }
+        }
+        if (e.button === 2) {
+          this.stickyAim = false;
+          this.mouseAim = false;
         }
       });
+      canvas.addEventListener("contextmenu", (e) => e.preventDefault());
       window.addEventListener("mouseup", (e) => {
         if (e.button === 0) this.mouseAim = false;
       });
@@ -183,9 +245,21 @@
 
       this.moveX = mx;
       this.moveY = my;
+      // autofire fallback: keep firing last direction when enabled
+      if (this.prefs?.autofire && Math.hypot(sx, sy) < 0.22) {
+        if (Math.hypot(this.lastAimX, this.lastAimY) > 0.2) {
+          sx = this.lastAimX;
+          sy = this.lastAimY;
+        }
+      }
+      if (Math.hypot(sx, sy) > 0.22) {
+        const m = Math.hypot(sx, sy);
+        this.lastAimX = sx / m;
+        this.lastAimY = sy / m;
+      }
       this.shootX = sx;
       this.shootY = sy;
-      this.shooting = ks > 0.25 || this.mouseAim;
+      this.shooting = ks > 0.25 || this.mouseAim || this.stickyAim || (this.prefs?.autofire && Math.hypot(sx, sy) > 0.2);
 
       let start = !!(this.keys.Space || this.keys.Enter || this.keys.KeyF);
       let pause = !!(this.keys.Escape || this.keys.KeyP);

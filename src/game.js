@@ -1,4 +1,16 @@
 (() => {
+  // Compat: if a stale cached input.js lacks prefs/stickyAim, backfill defaults so render never crashes.
+  try {
+    if (window.Input && !window.Input.prefs) {
+      window.Input.prefs = { autofire: false, muted: false, lowfx: false, scanlines: true, difficulty: "arcade" };
+    }
+    if (window.Input) {
+      if (window.Input.stickyAim === undefined) window.Input.stickyAim = false;
+      if (window.Input.mouseSeen === undefined) window.Input.mouseSeen = false;
+      if (window.Input.lastAimX === undefined) window.Input.lastAimX = 0;
+      if (window.Input.lastAimY === undefined) window.Input.lastAimY = -1;
+    }
+  } catch (_) {}
   const STATE = {
     TITLE: "title",
     INTRO: "intro",
@@ -362,6 +374,8 @@
       this.totalRescued = 0;
       this.waveNum = 1;
       this.extraAwarded = 0;
+      this.isNewBest = false;
+      this.hadBest = Number(localStorage.getItem(HS_KEY) || localStorage.getItem(HS_KEY_OLD) || 0) > 0;
       this.player = null;
       this.grunts = [];
       this.humans = [];
@@ -424,11 +438,24 @@
       this.totalRescued = 0;
       this.waveNum = 1;
       this.extraAwarded = 0;
+      this.isNewBest = false;
       this.waveTime = 0;
       FX.reset();
       this.buildWave();
       this.setState(STATE.INTRO);
       AudioFX.waveStart();
+    }
+
+    difficultyMul() {
+      try {
+        return window.Input && window.Input.prefs && window.Input.prefs.difficulty === "easy" ? 0.8 : 1;
+      } catch (_) {
+        return 1;
+      }
+    }
+
+    chainNext() {
+      return [1000, 2000, 3000, 4000, 5000][this.humanChain % 5];
     }
 
     waveSpec() {
@@ -623,29 +650,70 @@
       };
     }
 
-    spawnPlayer(center) {
+    findSafeSpawn() {
       const { x, y, w, h } = this.arena;
+      const threats = [];
+      for (const a of [this.grunts, this.hulks, this.brains, this.enforcers, this.tanks, this.progs]) {
+        for (const e of a) if (e.alive) threats.push(e);
+      }
+      let best = { x: x + w * 0.5, y: y + h * 0.5 };
+      let bestScore = -Infinity;
+      const cands = [{ x: best.x, y: best.y }];
+      for (let i = 0; i < 14; i++) {
+        cands.push({ x: x + w * (0.15 + Math.random() * 0.7), y: y + h * (0.15 + Math.random() * 0.7) });
+      }
+      for (const c of cands) {
+        let minD = Infinity;
+        for (const t of threats) {
+          const d = Math.hypot(c.x - t.x, c.y - t.y);
+          if (d < minD) minD = d;
+        }
+        if (threats.length === 0) minD = 9999;
+        // prefer near-center but safe: balance distance + centrality
+        const centerD = Math.hypot(c.x - best.x, c.y - best.y);
+        const score = minD - centerD * 0.35;
+        if (score > bestScore) {
+          bestScore = score;
+          best = c;
+        }
+      }
+      return best;
+    }
+
+    spawnPlayer(center) {
+      const pos = center && this.hostilesLeft && (this.grunts.length || this.hulks.length)
+        ? this.findSafeSpawn()
+        : { x: this.arena.x + this.arena.w * 0.5, y: this.arena.y + this.arena.h * 0.5 };
+      const easy = this.difficultyMul() < 1 ? 0.6 : 0;
       this.player = {
-        x: x + w * 0.5,
-        y: y + h * 0.5,
+        x: pos.x,
+        y: pos.y,
         vx: 0,
         vy: 0,
         r: this.minDim * 0.022,
         face: "s",
-        aimX: 0,
-        aimY: -1,
+        aimX: Input.lastAimX || 0,
+        aimY: Input.lastAimY || -1,
         anim: 0,
-        invuln: 2.05,
+        invuln: 2.05 + easy,
         alive: true,
-        spawn: center ? 0 : 1,
+        spawn: 1,
       };
+      // keep materialize effect on wave build, instant-ish on respawn handled by caller
+      if (center && this.stateTime < 0.1 && this.waveTime === 0) this.player.spawn = 0;
     }
 
     addScore(n, x, y, label) {
+      const wasBest = this.score >= this.high && this.high > 0;
       this.score += n;
       if (this.score > this.high) {
         this.high = this.score;
         localStorage.setItem(HS_KEY, String(this.high));
+        if (!this.isNewBest && this.score > 0) {
+          this.isNewBest = true;
+          FX.scorePop(this.viewW / 2, this.arena.y + 60, "NEW BEST!", "#ffe56a");
+          AudioFX.extraLife();
+        }
       }
       if (this.score >= 25000 && this.extraAwarded < 1) {
         this.extraAwarded = 1;
@@ -706,7 +774,9 @@
 
       if (this.state === STATE.INTRO) {
         this.updateIntro(dt);
-        if (this.stateTime >= 1.35) this.setState(STATE.PLAY);
+        // Wave 1 teaches: give time to read the how-to card
+        const need = this.waveNum === 1 ? 4.2 : 1.35;
+        if (this.stateTime >= need) this.setState(STATE.PLAY);
       } else if (this.state === STATE.PLAY) {
         this.waveTime += dt;
         this.updatePlay(dt);
@@ -797,6 +867,8 @@
 
     updatePlay(dt) {
       Input.startLatch = false;
+      // clicks during play are sticky-aim toggles, not start requests
+      Input._clickStart = false;
       this.updateSpawns(dt);
       this.updatePlayer(dt);
       this.updateHumans(dt);
@@ -874,11 +946,15 @@
 
       let ax = Input.shootX;
       let ay = Input.shootY;
-      if (Input.mouseAim) {
-        const [wx, wy] = this.screenToWorld(Input.mouseX, Input.mouseY);
-        const [nx, ny] = norm(wx - p.x, wy - p.y);
-        ax = nx;
-        ay = ny;
+      if (Input.mouseAim || Input.stickyAim) {
+        if (Input.mouseSeen) {
+          const [wx, wy] = this.screenToWorld(Input.mouseX, Input.mouseY);
+          const [nx, ny] = norm(wx - p.x, wy - p.y);
+          if (Math.hypot(nx, ny) > 0.01) {
+            ax = nx;
+            ay = ny;
+          }
+        }
       }
       if (Math.hypot(ax, ay) > 0.2) {
         p.aimX = ax;
@@ -892,14 +968,19 @@
       p.anim += dt * (moving ? 8.5 : 0);
 
       this.fireCd -= dt;
-      const shooting = Math.hypot(ax, ay) > 0.22;
-      if (shooting && this.fireCd <= 0 && this.bullets.length < 8) {
+      const hasAim = Math.hypot(ax, ay) > 0.22;
+      const wantFire = hasAim || (Input.prefs?.autofire && Math.hypot(p.aimX, p.aimY) > 0.2);
+      const dirX = hasAim ? ax : p.aimX;
+      const dirY = hasAim ? ay : p.aimY;
+      if (wantFire && this.fireCd <= 0 && this.bullets.length < 8) {
         this.fireCd = 0.055;
-        const [nx, ny] = norm(ax, ay);
+        const [nx, ny] = norm(dirX, dirY);
         const muzzle = m * 0.045;
+        const mx = p.x + nx * muzzle;
+        const my = p.y - m * 0.045 + ny * muzzle;
         this.bullets.push({
-          x: p.x + nx * muzzle,
-          y: p.y - m * 0.045 + ny * muzzle,
+          x: mx,
+          y: my,
           vx: nx * m * 1.4,
           vy: ny * m * 1.4,
           r: m * 0.011,
@@ -909,7 +990,8 @@
         const pan = ((p.x - this.arena.x) / this.arena.w) * 2 - 1;
         AudioFX.shot(pan);
         Input.rumble(18, 0.08, 0.18);
-        FX.burst(p.x + nx * muzzle, p.y - m * 0.045 + ny * muzzle, "#9ffff6", 6, 180, 2.1, 0.18);
+        FX.burst(mx, my, "#9ffff6", 4, 180, 2.1, 0.15);
+        FX.light(mx, my, "rgba(126,246,255,0.9)", m * 0.09, 0.14);
       }
     }
 
@@ -927,6 +1009,7 @@
 
     updateHumans(dt) {
       const speed = this.minDim * 0.13;
+      const m = this.minDim;
       for (const h of this.humans) {
         if (!h.alive) continue;
         if (h.converting) {
@@ -941,8 +1024,35 @@
           h.vy = Math.sin(a);
           h.think = rand(0.4, 1.25);
         }
-        h.x += h.vx * speed * dt;
-        h.y += h.vy * speed * dt;
+        // flee nearest Hulk a little — fewer cheap unavoidable deaths
+        let fx = 0;
+        let fy = 0;
+        for (const k of this.hulks) {
+          if (!k.alive) continue;
+          const dx = h.x - k.x;
+          const dy = h.y - k.y;
+          const d = Math.hypot(dx, dy);
+          if (d > 0 && d < m * 0.22) {
+            const wgt = 1 - d / (m * 0.22);
+            fx += (dx / d) * wgt * 1.4;
+            fy += (dy / d) * wgt * 1.4;
+          }
+        }
+        // gentle magnet toward player when close — rescue feels fair at speed
+        if (this.player && this.player.alive) {
+          const dx = this.player.x - h.x;
+          const dy = this.player.y - h.y;
+          const d = Math.hypot(dx, dy);
+          if (d > 1 && d < m * 0.12) {
+            fx += (dx / d) * 0.9;
+            fy += (dy / d) * 0.9;
+          }
+        }
+        const mx = h.vx + fx;
+        const my = h.vy + fy;
+        const [ux, uy] = norm(mx, my);
+        h.x += ux * speed * dt;
+        h.y += uy * speed * dt;
         const { x, y, w, ht } = {
           x: this.arena.x,
           y: this.arena.y,
@@ -965,7 +1075,7 @@
           h.y = y + ht - 16;
           h.vy *= -1;
         }
-        h.face = facingFrom(h.vx, h.vy);
+        h.face = facingFrom(ux, uy);
         h.anim += dt * 7;
       }
     }
@@ -973,7 +1083,7 @@
     updateGrunts(dt) {
       const p = this.player;
       const t = this.waveTime;
-      const mul = this.waveSpec().gruntMul || 1;
+      const mul = (this.waveSpec().gruntMul || 1) * this.difficultyMul();
       const base = this.minDim * (0.115 + Math.min(0.42, t * 0.011)) * mul;
       const live = this.grunts.filter((g) => g.alive);
       for (const g of live) {
@@ -1111,7 +1221,15 @@
         s.pulse = Math.max(0, s.pulse - dt);
         if (s.spawn < 1 || this.state !== STATE.PLAY) continue;
         s.hatch -= dt;
-        if (s.hatch <= 0.22) s.pulse = Math.max(s.pulse, 0.22);
+        // wind-up: bigger pulse + audible tick so hatch never surprises
+        if (s.hatch <= 0.55) {
+          s.pulse = Math.max(s.pulse, 0.22);
+          s.tickT = (s.tickT || 0) - dt;
+          if (s.tickT <= 0 && s.hatch > 0) {
+            s.tickT = 0.18;
+            AudioFX.tick(((s.x - this.arena.x) / this.arena.w) * 2 - 1);
+          }
+        }
         if (s.hatch <= 0) {
           if (this.enforcerCount() >= cap) {
             s.hatch = 0.12;
@@ -1134,7 +1252,8 @@
     updateEnforcers(dt) {
       const p = this.player;
       const spec = this.waveSpec();
-      const speed = this.minDim * 0.17 * (spec.enforcerMul || 1);
+      const diff = this.difficultyMul();
+      const speed = this.minDim * 0.17 * (spec.enforcerMul || 1) * diff;
       const m = this.minDim;
       for (const e of this.enforcers) {
         if (!e.alive) continue;
@@ -1151,14 +1270,15 @@
           this.clampEntity(e);
           e.fire -= dt;
           if (e.fire <= 0 && this.sparks.length < 12) {
-            e.fire = rand(spec.fireMin, spec.fireMax);
+            const dMul = this.difficultyMul() < 1 ? 1.35 : 1;
+            e.fire = rand(spec.fireMin * dMul, spec.fireMax * dMul);
             const jitter = m * 0.07;
             const tx = p.x + (Math.random() - 0.5) * jitter * 2;
             const ty = p.y + (Math.random() - 0.5) * jitter * 2;
             const [ax, ay] = norm(tx - e.x, ty - e.y);
             const dist = Math.hypot(p.x - e.x, p.y - e.y);
             const close = clamp(dist / (m * 0.28), 0.5, 1);
-            const spd = m * ((spec.sparkMul || 0.5) * close);
+            const spd = m * ((spec.sparkMul || 0.5) * close) * diff;
             this.sparks.push({
               x: e.x,
               y: e.y - m * 0.018,
@@ -1183,20 +1303,26 @@
         s.y += s.vy * dt;
         s.spin += dt * 14;
         s.life -= dt;
+        let bounced = false;
         if (s.x < x + pad) {
           s.x = x + pad;
           s.vx = Math.abs(s.vx) * 0.85;
+          bounced = true;
         } else if (s.x > x + w - pad) {
           s.x = x + w - pad;
           s.vx = -Math.abs(s.vx) * 0.85;
+          bounced = true;
         }
         if (s.y < y + pad) {
           s.y = y + pad;
           s.vy = Math.abs(s.vy) * 0.85;
+          bounced = true;
         } else if (s.y > y + h - pad) {
           s.y = y + h - pad;
           s.vy = -Math.abs(s.vy) * 0.85;
+          bounced = true;
         }
+        if (bounced) FX.wallRipple(s.x, s.y, "rgba(255,110,40,0.8)");
         if (s.life <= 0) this.sparks.splice(i, 1);
       }
     }
@@ -1204,7 +1330,8 @@
     updateBrains(dt) {
       if (this.state !== STATE.PLAY) return;
       const spec = this.waveSpec();
-      const speed = this.minDim * 0.068 * (spec.brainMul || 1);
+      const diff = this.difficultyMul();
+      const speed = this.minDim * 0.068 * (spec.brainMul || 1) * diff;
       const m = this.minDim;
       for (const b of this.brains) {
         if (!b.alive) continue;
@@ -1247,9 +1374,10 @@
         b.anim += dt * 5;
         b.fire -= dt;
         if (b.fire <= 0 && this.missiles.length < 6 && this.player && this.player.alive) {
-          b.fire = rand(2.8, 4.6);
+          const dMul = diff < 1 ? 1.4 : 1;
+          b.fire = rand(2.8 * dMul, 4.6 * dMul);
           const [nx, ny] = norm(this.player.x - b.x, this.player.y - b.y);
-          const spd = m * (spec.missileMul || 0.4);
+          const spd = m * (spec.missileMul || 0.4) * diff;
           this.missiles.push({
             x: b.x,
             y: b.y - m * 0.04,
@@ -1279,7 +1407,9 @@
       human.vy = 0;
       brain.converting = human;
       AudioFX.convertStart();
-      FX.ring(human.x, human.y, "#c77bff", 0.4);
+      FX.ring(human.x, human.y, "#ff4a6a", 0.5);
+      FX.light(human.x, human.y, "rgba(255,60,90,0.9)", this.minDim * 0.12, 0.5);
+      FX.scorePop(human.x, human.y - 34, "HELP!", "#ff6a7a");
     }
 
     finishConvert(brain, human) {
@@ -1396,7 +1526,14 @@
         q.pulse = Math.max(0, q.pulse - dt);
         if (q.spawn < 1 || this.state !== STATE.PLAY) continue;
         q.hatch -= dt;
-        if (q.hatch <= 0.25) q.pulse = Math.max(q.pulse, 0.22);
+        if (q.hatch <= 0.55) {
+          q.pulse = Math.max(q.pulse, 0.22);
+          q.tickT = (q.tickT || 0) - dt;
+          if (q.tickT <= 0 && q.hatch > 0) {
+            q.tickT = 0.2;
+            AudioFX.tick(((q.x - this.arena.x) / this.arena.w) * 2 - 1);
+          }
+        }
         if (q.hatch <= 0) {
           if (this.tankCount() >= cap) {
             q.hatch = 0.2;
@@ -1417,7 +1554,8 @@
 
     updateTanks(dt) {
       const spec = this.waveSpec();
-      const speed = this.minDim * 0.11 * (spec.tankMul || 0.55);
+      const diff = this.difficultyMul();
+      const speed = this.minDim * 0.11 * (spec.tankMul || 0.55) * diff;
       const m = this.minDim;
       for (const t of this.tanks) {
         if (!t.alive) continue;
@@ -1440,12 +1578,13 @@
         t.face = facingFrom(t.vx, t.vy);
         t.fire -= dt;
         if (this.state === STATE.PLAY && t.fire <= 0 && this.shells.length < 10 && this.player && this.player.alive) {
-          t.fire = rand(spec.tankFireMin || 1.4, spec.tankFireMax || 2.2);
+          const dMul = diff < 1 ? 1.35 : 1;
+          t.fire = rand((spec.tankFireMin || 1.4) * dMul, (spec.tankFireMax || 2.2) * dMul);
           const jitter = m * 0.06;
           const tx = this.player.x + (Math.random() - 0.5) * jitter;
           const ty = this.player.y + (Math.random() - 0.5) * jitter;
           const [ax, ay] = norm(tx - t.x, ty - t.y);
-          const spd = m * (spec.shellMul || 0.4);
+          const spd = m * (spec.shellMul || 0.4) * diff;
           this.shells.push({
             x: t.x + ax * m * 0.04,
             y: t.y - m * 0.02 + ay * m * 0.03,
@@ -1490,6 +1629,7 @@
         if (bounced) {
           s.bounces += 1;
           AudioFX.tankBounce();
+          FX.wallRipple(s.x, s.y, "rgba(255,176,64,0.85)");
         }
         if (s.life <= 0 || s.bounces >= 4) this.shells.splice(i, 1);
       }
@@ -1520,8 +1660,10 @@
               hit = true;
               this.addScore(1000, s.x, s.y, "1000");
               AudioFX.spheroidDie(panOf(s));
-              FX.burst(s.x, s.y, "#ff7ae0", 28, 320, 3.6, 0.45);
+              FX.burst(s.x, s.y, "#ff7ae0", 20, 320, 3.4, 0.4);
+              FX.debris(s.x, s.y, ["#ff7ae0", "#7a0858", "#ffffff"], 12, 300, 0.5);
               FX.ring(s.x, s.y, "#ffa0e8", 0.35);
+              FX.light(s.x, s.y, "rgba(255,60,180,0.9)", this.minDim * 0.15, 0.3);
               FX.addShake(5);
               break;
             }
@@ -1548,7 +1690,7 @@
               this.sparks.splice(si, 1);
               hit = true;
               this.addScore(25, sp.x, sp.y, "25");
-              FX.burst(sp.x, sp.y, "#ff9adf", 8, 160, 2, 0.2);
+              FX.burst(sp.x, sp.y, "#ff7a2a", 8, 160, 2, 0.2);
               break;
             }
           }
@@ -1610,7 +1752,7 @@
               this.missiles.splice(mi, 1);
               hit = true;
               this.addScore(25, ms.x, ms.y, "25");
-              FX.burst(ms.x, ms.y, "#a070ff", 10, 180, 2.2, 0.22);
+              FX.burst(ms.x, ms.y, "#ff6a2a", 10, 180, 2.2, 0.22);
               break;
             }
           }
@@ -1623,8 +1765,10 @@
               hit = true;
               this.addScore(1000, q.x, q.y, "1000");
               AudioFX.quarkDie(panOf(q));
-              FX.burst(q.x, q.y, "#b6ff40", 28, 320, 3.6, 0.45);
+              FX.burst(q.x, q.y, "#b6ff40", 20, 320, 3.4, 0.4);
+              FX.debris(q.x, q.y, ["#b6ff40", "#4a6a10", "#ffffff"], 12, 300, 0.5);
               FX.ring(q.x, q.y, "#e8ff80", 0.35);
+              FX.light(q.x, q.y, "rgba(180,255,60,0.9)", this.minDim * 0.15, 0.3);
               FX.addShake(5);
               break;
             }
@@ -1638,8 +1782,10 @@
               hit = true;
               this.addScore(200, tk.x, tk.y, "200");
               AudioFX.tankDie(panOf(tk));
-              FX.burst(tk.x, tk.y, "#ff9a3a", 24, 280, 3.2, 0.4);
+              FX.burst(tk.x, tk.y, "#ff9a3a", 18, 280, 3, 0.35);
+              FX.debris(tk.x, tk.y, ["#ff9a3a", "#5a5a5a", "#ffe56a"], 14, 300, 0.55);
               FX.ring(tk.x, tk.y, "#ffe56a", 0.28);
+              FX.light(tk.x, tk.y, "rgba(255,150,50,0.9)", this.minDim * 0.16, 0.32);
               break;
             }
           }
@@ -1747,10 +1893,10 @@
 
       if (!p || !p.alive) return;
 
-      // rescue
+      // rescue — generous radius + magnet assist so fast fly-bys count
       for (const h of this.humans) {
         if (!h.alive) continue;
-        if (Math.hypot(p.x - h.x, p.y - h.y) < p.r + h.r + 6) {
+        if (Math.hypot(p.x - h.x, p.y - h.y) < p.r + h.r + 20) {
           for (const br of this.brains) {
             if (br.converting === h) this.cancelConvert(br);
           }
@@ -1762,10 +1908,11 @@
           this.totalRescued += 1;
           AudioFX.rescue(panOf(h));
           Input.rumble(80, 0.2, 0.45);
-          FX.burst(h.x, h.y, "#fff", 20, 200, 2.8, 0.4);
+          FX.burst(h.x, h.y, "#fff", 16, 200, 2.8, 0.35);
+          FX.debris(h.x, h.y, ["#ffffff", "#ffe56a"], 6, 160, 0.35);
           const ring = h.kind === "mommy" ? "#ff7ae0" : h.kind === "mikey" ? "#ffe56a" : "#7eb6ff";
           FX.ring(h.x, h.y, ring, 0.4);
-          FX.addFlash(0.18, "rgba(255,255,180,0.16)");
+          FX.light(h.x, h.y, "rgba(255,255,190,0.9)", this.minDim * 0.14, 0.3);
         }
       }
 
@@ -1871,9 +2018,10 @@
       this.cancelConvert(br);
       this.addScore(500, br.x, br.y, "500");
       AudioFX.brainDie(((br.x - this.arena.x) / this.arena.w) * 2 - 1);
-      FX.burst(br.x, br.y - 12, "#c77bff", 28, 300, 3.4, 0.42);
-      FX.burst(br.x, br.y - 12, "#ffe56a", 10, 180, 2.2, 0.28);
+      FX.burst(br.x, br.y - 12, "#c77bff", 20, 300, 3.4, 0.4);
+      FX.debris(br.x, br.y - 12, ["#c77bff", "#5a2a8a", "#ffe56a"], 12, 260, 0.5);
       FX.ring(br.x, br.y, "#ff80ff", 0.32);
+      FX.light(br.x, br.y, "rgba(200,120,255,0.9)", this.minDim * 0.13, 0.28);
       FX.addShake(4);
     }
 
@@ -1881,9 +2029,10 @@
       if (scored) this.addScore(100, g.x, g.y, "100");
       const pan = ((g.x - this.arena.x) / this.arena.w) * 2 - 1;
       AudioFX.gruntDie(pan);
-      FX.burst(g.x, g.y - 10, "#ff4a3a", 26, 300, 3.4, 0.42);
-      FX.burst(g.x, g.y - 10, "#ffd36a", 10, 180, 2.2, 0.28);
+      FX.burst(g.x, g.y - 10, "#ff4a3a", 18, 300, 3.2, 0.38);
+      FX.debris(g.x, g.y - 10, ["#ff4a3a", "#7a1a12", "#ffd36a"], 10, 280, 0.45);
       FX.ring(g.x, g.y, "#ff6a3a", 0.26);
+      FX.light(g.x, g.y, "rgba(255,90,50,0.85)", this.minDim * 0.11, 0.22);
       FX.addShake(2.4);
       FX.hitstop = 0.03;
       Input.rumble(30, 0.12, 0.3);
@@ -1948,13 +2097,20 @@
       return s[base + "_s"];
     }
 
-    drawSprite(ctx, img, x, footY, height, spawn = 1, flicker = 1, bob = 0) {
+    drawSprite(ctx, img, x, footY, height, spawn = 1, flicker = 1, bob = 0, flipH = false, tilt = 0) {
       if (!img || flicker <= 0) return;
       const aspect = img.width / img.height;
       const w = height * aspect;
       footY -= bob;
       ctx.save();
       ctx.globalAlpha *= flicker;
+      // lean/flip so S-only sprites don't pop when facing E/W — cheap 2.5D
+      if (flipH || tilt) {
+        ctx.translate(x, footY - height / 2);
+        if (tilt) ctx.rotate(tilt);
+        if (flipH) ctx.scale(-1, 1);
+        ctx.translate(-x, -(footY - height / 2));
+      }
       if (spawn < 0.999) {
         const strips = 16;
         const sh = img.height / strips;
@@ -2025,11 +2181,14 @@
         ctx.globalAlpha = 1;
       }
 
-      this.renderScanlines(ctx);
+      this.renderDanger(ctx);
+      const wantScan = !Input.prefs || Input.prefs.scanlines !== false;
+      if (wantScan) this.renderScanlines(ctx);
       this.renderHUD(ctx);
 
       if (this.state === STATE.INTRO) {
-        this.renderBanner(ctx, "WAVE " + this.waveNum, this.waveSpec().subtitle);
+        if (this.waveNum === 1) this.renderHowTo(ctx);
+        else this.renderBanner(ctx, "WAVE " + this.waveNum, this.waveSpec().subtitle);
       }
       if (this.state === STATE.DEAD && this.lives > 0) this.renderBanner(ctx, "DESTROYED", "GET READY");
       if (this.state === STATE.TRANS) this.renderWipe(ctx);
@@ -2057,7 +2216,8 @@
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
 
-      this.renderScanlines(ctx);
+      const wantScanTitle = !Input.prefs || Input.prefs.scanlines !== false;
+      if (wantScanTitle) this.renderScanlines(ctx);
 
       ctx.textAlign = "center";
       ctx.fillStyle = "#7ef6ff";
@@ -2074,6 +2234,50 @@
       ctx.fillStyle = "#ffe56a";
       ctx.font = "700 20px Orbitron, sans-serif";
       ctx.fillText("WAVES 1–10", w / 2, h * 0.18 + Math.min(118, w * 0.095));
+
+      // onboarding: what to do in 3 beats + controls by device
+      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      ctx.font = "16px 'Share Tech Mono', monospace";
+      ctx.fillText("TOUCH HUMANS TO SAVE  ·  GREEN HULKS CAN'T DIE  ·  SHOOT PINK SPHEROIDS FIRST", w / 2, h * 0.335);
+      // controls card
+      const cy = h * 0.44;
+      ctx.save();
+      ctx.fillStyle = "rgba(6,10,18,0.72)";
+      const cw = Math.min(720, w * 0.86);
+      const ch = 118;
+      const cx0 = w / 2 - cw / 2;
+      // rounded card
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(cx0, cy, cw, ch, 12);
+      else ctx.rect(cx0, cy, cw, ch);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(126,246,255,0.35)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#7ef6ff";
+      ctx.font = "700 13px Orbitron, sans-serif";
+      const cols = [
+        ["MOVE", "WASD / LEFT STICK", "#7ef6ff"],
+        ["FIRE", "ARROWS / IJKL / RIGHT STICK", "#ff7ae0"],
+        ["AIM-CLICK", "CLICK TOGGLES MOUSE FIRE", "#ffe56a"],
+      ];
+      cols.forEach((c, i) => {
+        const px = w / 2 + (i - 1) * (cw / 3);
+        ctx.fillStyle = "#8a95a5";
+        ctx.fillText(c[0], px, cy + 26);
+        ctx.fillStyle = c[2];
+        ctx.font = "13px 'Share Tech Mono', monospace";
+        const parts = c[1].split(" / ");
+        parts.forEach((p, j) => ctx.fillText(p, px, cy + 50 + j * 18));
+        ctx.font = "700 13px Orbitron, sans-serif";
+      });
+      ctx.fillStyle = "#8a95a5";
+      ctx.font = "12px 'Share Tech Mono', monospace";
+      const p = Input.prefs || {};
+      const mode = (p.difficulty === "easy" ? "EASY" : "ARCADE") + (p.autofire ? " · AUTOFIRE ON (T)" : "") + (p.muted ? " · MUTED (M)" : "") + (p.lowfx ? " · LOW-FX (V)" : "");
+      ctx.fillText(`T AUTOFIRE · E DIFFICULTY · M MUTE · V LOW-FX · N SCANLINES      —      ${mode}`, w / 2, cy + ch + 20);
+      ctx.restore();
 
       ctx.fillStyle = "rgba(255,255,255,0.82)";
       ctx.font = "16px 'Share Tech Mono', monospace";
@@ -2110,7 +2314,7 @@
 
       const floor = this.sprites.floor;
       if (floor) {
-        ctx.globalAlpha = 0.38;
+        ctx.globalAlpha = 0.52;
         const tile = Math.max(280, this.minDim * 0.38);
         for (let ty = y - 20; ty < y + h; ty += tile) {
           for (let tx = x - 20; tx < x + w; tx += tile) {
@@ -2118,10 +2322,18 @@
           }
         }
         ctx.globalAlpha = 1;
+        // per-wave hue wash so electrodes / floor / walls feel like one sector
+        try {
+          const hue = this.waveSpec ? this.waveSpec().electrodeHue : 190;
+          if (typeof hue === "number") {
+            ctx.fillStyle = `hsla(${hue}, 90%, 55%, 0.06)`;
+            ctx.fillRect(x, y, w, h);
+          }
+        } catch (_) {}
       }
 
       const step = Math.max(48, this.minDim * 0.055);
-      ctx.strokeStyle = "rgba(40, 220, 255, 0.07)";
+      ctx.strokeStyle = "rgba(40, 220, 255, 0.04)";
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let gx = x; gx <= x + w; gx += step) {
@@ -2214,7 +2426,10 @@
           this.drawShadow(ctx, g.x, g.y, m * 0.028, m * 0.01);
           const img = this.spriteFor("grunt", g.face, true, Math.floor(g.anim));
           const bob = Math.abs(Math.sin(g.anim * Math.PI)) * m * 0.006;
-          this.drawSprite(ctx, img, g.x, g.y, m * 0.105, g.spawn, 1, bob);
+          // S-only art: flip + lean sells E/W without new PNGs
+          const flipH = g.face === "w";
+          const tilt = g.face === "e" ? 0.1 : g.face === "w" ? -0.1 : 0;
+          this.drawSprite(ctx, img, g.x, g.y, m * 0.105, g.spawn, 1, bob, flipH, tilt);
         }
         if (d.kind === "human") {
           const h = d.e;
@@ -2224,6 +2439,7 @@
           const bob = h.converting ? 0 : Math.abs(Math.sin(h.anim * Math.PI)) * m * 0.005;
           const flick = h.converting ? (Math.sin(this.time * 22) > 0 ? 1 : 0.35) : 1;
           this.drawSprite(ctx, img, h.x, h.y, hh, h.spawn, flick, bob);
+          this.renderHumanBeacon(ctx, h, m);
         }
         if (d.kind === "hulk") {
           const h = d.e;
@@ -2231,7 +2447,19 @@
           const img = this.spriteFor("hulk", h.face, true, Math.floor(h.anim));
           const bob = Math.abs(Math.sin(h.anim * Math.PI)) * m * 0.004;
           const flick = h.flash > 0 ? 0.55 + 0.45 * Math.sin(this.time * 40) : 1;
-          this.drawSprite(ctx, img, h.x, h.y, m * 0.155, h.spawn, flick, bob);
+          const flipH = h.face === "w";
+          const tilt = h.face === "e" ? 0.08 : h.face === "w" ? -0.08 : 0;
+          this.drawSprite(ctx, img, h.x, h.y, m * 0.155, h.spawn, flick, bob, flipH, tilt);
+          // immune readability: shield tick when recently shot
+          if (h.flash > 0) {
+            ctx.save();
+            ctx.strokeStyle = "rgba(125,255,106,0.8)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(h.x, h.y - m * 0.07, m * 0.045, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
         }
         if (d.kind === "spheroid") this.renderSpheroid(ctx, d.e);
         if (d.kind === "enforcer") this.renderEnforcer(ctx, d.e);
@@ -2240,13 +2468,14 @@
           this.drawShadow(ctx, b.x, b.y, m * 0.03, m * 0.01);
           const img = this.spriteFor("brain", b.face, !b.converting, Math.floor(b.anim));
           const bob = b.converting ? 0 : Math.abs(Math.sin(b.anim * Math.PI)) * m * 0.004;
-          this.drawSprite(ctx, img, b.x, b.y, m * 0.12, b.spawn, 1, bob);
+          const flipH = b.face === "w";
+          this.drawSprite(ctx, img, b.x, b.y, m * 0.12, b.spawn, 1, bob, flipH, 0);
           if (b.converting) {
             ctx.save();
-            ctx.strokeStyle = "rgba(200,120,255,0.7)";
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = "rgba(255,80,110,0.85)";
+            ctx.lineWidth = 2.5;
             ctx.beginPath();
-            ctx.arc(b.x, b.y - m * 0.05, m * 0.04, 0, Math.PI * 2);
+            ctx.arc(b.x, b.y - m * 0.05, m * 0.045, 0, Math.PI * 2);
             ctx.stroke();
             ctx.restore();
           }
@@ -2264,17 +2493,10 @@
           this.drawShadow(ctx, g.x, g.y, m * 0.018, m * 0.007);
           const img = this.spriteFor("prog", g.face, true, Math.floor(g.anim));
           const bob = Math.abs(Math.sin(g.anim * Math.PI)) * m * 0.005;
-          this.drawSprite(ctx, img, g.x, g.y, hh, g.spawn, 1, bob);
+          this.drawSprite(ctx, img, g.x, g.y, hh, g.spawn, 1, bob, g.face === "w", 0);
         }
         if (d.kind === "player") {
           const p = d.e;
-          ctx.save();
-          ctx.strokeStyle = "rgba(126,246,255,0.55)";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.ellipse(p.x, p.y + 3, m * 0.028, m * 0.01, 0, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.restore();
           this.drawShadow(ctx, p.x, p.y, m * 0.024, m * 0.009);
           const moving = Math.hypot(p.vx, p.vy) > 8;
           const img = this.spriteFor("player", p.face, moving, Math.floor(p.anim));
@@ -2282,11 +2504,50 @@
           if (p.invuln > 0) flick = Math.sin(this.time * 28) > 0 ? 1 : 0.25;
           const bob = moving ? Math.abs(Math.sin(p.anim * Math.PI)) * m * 0.007 : 0;
           this.drawSprite(ctx, img, p.x, p.y, m * 0.13, p.spawn, flick, bob);
-          if (Math.hypot(Input.shootX, Input.shootY) > 0.22 || Input.mouseAim) {
+          const aiming = Math.hypot(p.aimX, p.aimY) > 0.2 && (Math.hypot(Input.shootX, Input.shootY) > 0.22 || Input.mouseAim || Input.stickyAim || Input.prefs?.autofire);
+          if (aiming) {
             this.renderAim(ctx, p);
           }
         }
       }
+    }
+
+    renderHumanBeacon(ctx, h, m) {
+      // always-visible rescue signal: diamond + HELP when converting
+      const y0 = h.y - (h.kind === "mikey" ? m * 0.1 : m * 0.135);
+      const pulse = 0.6 + 0.4 * Math.sin(this.time * 5 + h.x * 0.05);
+      ctx.save();
+      if (h.converting) {
+        // urgent red beacon
+        const flash = Math.sin(this.time * 14) > 0;
+        ctx.fillStyle = flash ? "#ff4a6a" : "#fff";
+        ctx.shadowColor = "#ff2a4a";
+        ctx.shadowBlur = 14;
+        ctx.font = `700 ${Math.round(m * 0.022)}px Orbitron, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText("HELP!", h.x, y0 - m * 0.02);
+        ctx.beginPath();
+        ctx.moveTo(h.x, y0 - 2);
+        ctx.lineTo(h.x - 6, y0 - 12);
+        ctx.lineTo(h.x + 6, y0 - 12);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+      ctx.globalAlpha = 0.55 + 0.3 * pulse;
+      ctx.fillStyle = h.kind === "mommy" ? "#ff7ae0" : h.kind === "mikey" ? "#ffe56a" : "#7eb6ff";
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 8;
+      const s = Math.max(4, m * 0.008) * (1 + 0.15 * pulse);
+      ctx.beginPath();
+      ctx.moveTo(h.x, y0 - s);
+      ctx.lineTo(h.x + s * 0.7, y0);
+      ctx.lineTo(h.x, y0 + s);
+      ctx.lineTo(h.x - s * 0.7, y0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
 
     renderAim(ctx, p) {
@@ -2388,7 +2649,7 @@
 
     renderSpheroid(ctx, s) {
       const m = this.minDim;
-      const windup = s.hatch < 0.25 && s.alive ? 1 + (0.25 - s.hatch) * 2.4 : 1;
+      const windup = s.hatch < 0.55 && s.alive ? 1 + (0.55 - s.hatch) * 1.6 : 1;
       const r = s.r * (1.05 + 0.18 * Math.sin(this.time * 10 + s.phase) + s.pulse * 1.4) * windup;
       const bob = Math.sin(this.time * 5 + s.phase) * m * 0.007;
       const cy = s.y - r * 0.2 - bob;
@@ -2441,7 +2702,7 @@
     renderQuark(ctx, q) {
       const img = this.sprites.quark;
       const m = this.minDim;
-      const windup = q.hatch < 0.28 && q.alive ? 1 + (0.28 - q.hatch) * 1.8 : 1;
+      const windup = q.hatch < 0.55 && q.alive ? 1 + (0.55 - q.hatch) * 1.2 : 1;
       const h = m * 0.07 * (1 + q.pulse * 0.35) * windup;
       this.drawShadow(ctx, q.x, q.y, h * 0.45, h * 0.16);
       this.drawSprite(ctx, img, q.x, q.y + h * 0.15, h, q.spawn, 1, Math.sin(this.time * 4 + q.phase) * m * 0.006);
@@ -2471,16 +2732,21 @@
         ctx.save();
         ctx.translate(m.x, m.y);
         ctx.rotate(a);
-        ctx.shadowColor = "#c77bff";
-        ctx.shadowBlur = 16;
+        // hostile palette: hot orange/red only (never cyan/purple) so danger reads instantly
+        ctx.shadowColor = "#ff5a1a";
+        ctx.shadowBlur = 14;
         const grd = ctx.createLinearGradient(-18, 0, 10, 0);
-        grd.addColorStop(0, "rgba(160,80,255,0)");
-        grd.addColorStop(0.5, "#c77bff");
-        grd.addColorStop(1, "#fff");
+        grd.addColorStop(0, "rgba(255,90,20,0)");
+        grd.addColorStop(0.5, "#ff6a2a");
+        grd.addColorStop(1, "#fff3c0");
         ctx.fillStyle = grd;
         ctx.beginPath();
         ctx.ellipse(0, Math.sin(m.wobble) * 2, 16, 5, 0, 0, Math.PI * 2);
         ctx.fill();
+        // dark spine so it reads on bright floor
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "rgba(90,20,0,0.85)";
+        ctx.fillRect(-2, -1.5, 8, 3);
         ctx.restore();
       }
     }
@@ -2490,9 +2756,10 @@
         ctx.save();
         ctx.translate(s.x, s.y);
         ctx.rotate(s.spin || 0);
-        ctx.strokeStyle = "#ff7ae0";
-        ctx.fillStyle = "#ffd0f0";
-        ctx.shadowColor = "#ff4ab0";
+        // hostile orange-red cross — distinct from pink spheroids + cyan bullets
+        ctx.strokeStyle = "#ff6a2a";
+        ctx.fillStyle = "#ffd9a0";
+        ctx.shadowColor = "#ff4a00";
         ctx.shadowBlur = 12;
         ctx.lineWidth = 2.2;
         const arm = s.r * 2.4;
@@ -2631,8 +2898,65 @@
 
     renderScanlines(ctx) {
       ctx.save();
-      ctx.fillStyle = "rgba(0,0,0,0.12)";
-      for (let y = 0; y < this.viewH; y += 3) ctx.fillRect(0, y, this.viewW, 1);
+      ctx.fillStyle = "rgba(0,0,0,0.08)";
+      for (let y = 0; y < this.viewH; y += 4) ctx.fillRect(0, y, this.viewW, 1);
+      ctx.restore();
+    }
+
+    renderDanger(ctx) {
+      // red edge pulse when homing/orange danger is close — no extra HUD needed
+      if (!this.player || !this.player.alive) return;
+      if (this.state !== STATE.PLAY && this.state !== STATE.INTRO) return;
+      const m = this.minDim;
+      const p = this.player;
+      let danger = 0;
+      const check = (x, y, radius) => {
+        const d = Math.hypot(x - p.x, y - p.y);
+        if (d < radius) danger = Math.max(danger, 1 - d / radius);
+      };
+      for (const s of this.sparks) check(s.x, s.y, m * 0.22);
+      for (const ms of this.missiles) check(ms.x, ms.y, m * 0.26);
+      for (const sh of this.shells) check(sh.x, sh.y, m * 0.22);
+      for (const b of this.brains) if (b.converting) check(b.converting.x, b.converting.y, m * 0.3);
+      if (danger <= 0.02) return;
+      const low = Input.prefs && Input.prefs.lowfx ? 0.4 : 1;
+      const a = Math.min(0.5, danger * 0.5) * low * (0.7 + 0.3 * Math.sin(this.time * 8));
+      const w = this.viewW;
+      const h = this.viewH;
+      const { x, y, w: aw, h: ah } = this.arena;
+      const g = ctx.createRadialGradient(x + aw / 2, y + ah / 2, Math.min(aw, ah) * 0.35, x + aw / 2, y + ah / 2, Math.max(aw, ah) * 0.72);
+      g.addColorStop(0, "rgba(255,30,40,0)");
+      g.addColorStop(1, `rgba(255,30,40,${a})`);
+      ctx.save();
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, aw, ah);
+      ctx.restore();
+    }
+
+    renderHowTo(ctx) {
+      const w = this.viewW;
+      const h = this.viewH;
+      const fade = clamp(1.4 - Math.max(0, this.stateTime - 2.8) / 1.2, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = "rgba(4,6,12,0.55)";
+      ctx.fillRect(0, this.hudH + 8, w, h * 0.22);
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#18e8ff";
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = "#7ef6ff";
+      ctx.font = `900 ${Math.round(Math.min(48, w * 0.04))}px Orbitron, sans-serif`;
+      ctx.fillText("WAVE 1 — SAVE THE FAMILY", w / 2, this.hudH + h * 0.075);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#fff";
+      ctx.font = "15px 'Share Tech Mono', monospace";
+      ctx.fillText("MOVE: WASD / LEFT STICK      FIRE: ARROWS / IJKL / RIGHT STICK      CLICK = STICKY AIM", w / 2, this.hudH + h * 0.115);
+      ctx.fillStyle = "#ffe56a";
+      ctx.font = "15px 'Share Tech Mono', monospace";
+      ctx.fillText("WALK INTO HUMANS TO SAVE (CHAIN 1000→5000)  ·  GREEN HULKS ARE IMMUNE  ·  KILL GRUNTS FIRST", w / 2, this.hudH + h * 0.15);
+      ctx.fillStyle = "#8a95a5";
+      ctx.font = "13px 'Share Tech Mono', monospace";
+      ctx.fillText("T AUTOFIRE · E EASY/ARCADE · M MUTE · V LOW-FX — change anytime, even paused", w / 2, this.hudH + h * 0.185);
       ctx.restore();
     }
 
@@ -2645,7 +2969,7 @@
 
       ctx.textAlign = "left";
       ctx.font = "700 13px Orbitron, sans-serif";
-      ctx.fillStyle = "#6a7";
+      ctx.fillStyle = "#7fd6a5";
       ctx.fillText("SCORE", 28, 24);
       ctx.fillStyle = "#fff";
       ctx.font = "700 30px 'Share Tech Mono', monospace";
@@ -2653,20 +2977,29 @@
 
       ctx.textAlign = "center";
       ctx.font = "700 13px Orbitron, sans-serif";
-      ctx.fillStyle = "#6a7";
-      ctx.fillText("HIGH", w / 2, 24);
-      ctx.fillStyle = "#ffe56a";
+      ctx.fillStyle = "#7fd6a5";
+      const bestLabel = this.isNewBest ? "NEW BEST!" : "HIGH";
+      ctx.fillStyle = this.isNewBest ? "#ffe56a" : "#7fd6a5";
+      ctx.fillText(bestLabel, w / 2, 24);
+      ctx.fillStyle = this.isNewBest ? "#ffe56a" : "#ffe56a";
+      if (this.isNewBest) {
+        ctx.shadowColor = "#ffe56a";
+        ctx.shadowBlur = 10 + 6 * Math.sin(this.time * 6);
+      }
       ctx.font = "700 28px 'Share Tech Mono', monospace";
       ctx.fillText(String(this.high).padStart(6, "0"), w / 2, 54);
+      ctx.shadowBlur = 0;
 
       ctx.textAlign = "right";
       ctx.font = "700 15px Orbitron, sans-serif";
-      ctx.fillStyle = "#6a7";
-      ctx.fillText("WAVE " + this.waveNum, w - 28, 26);
+      ctx.fillStyle = "#7fd6a5";
+      const diffTag = Input.prefs && Input.prefs.difficulty === "easy" ? " · EASY" : "";
+      ctx.fillText("WAVE " + this.waveNum + diffTag, w - 28, 26);
 
       const lifeImg = this.sprites.player_s;
-      const lh = 28;
-      for (let i = 0; i < this.lives; i++) {
+      const lh = 24;
+      const livesToShow = Math.min(6, this.lives);
+      for (let i = 0; i < livesToShow; i++) {
         if (!lifeImg) continue;
         const aspect = lifeImg.width / lifeImg.height;
         const lw = lh * aspect;
@@ -2677,34 +3010,61 @@
       const need = this.waveSpec().humans;
       ctx.textAlign = "left";
       ctx.font = "13px 'Share Tech Mono', monospace";
-      ctx.fillStyle = "#f66";
-      ctx.fillText(`HOSTILES ${String(left).padStart(2, "0")}`, 200, 54);
-      ctx.fillStyle = "#f7a";
-      ctx.fillText(`SAVED ${this.rescued}/${need}`, 318, 54);
+      // high-contrast chips instead of tiny overlapping strings
+      let hx = 200;
+      const chip = (text, color) => {
+        ctx.fillStyle = "rgba(10,14,22,0.85)";
+        const tw = ctx.measureText(text).width + 14;
+        // wrap on narrow screens
+        if (hx + tw > w - 140) return hx; // skip extras rather than overlap lives
+        ctx.fillRect(hx - 7, 38, tw, 20);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(hx - 7, 38, tw, 20);
+        ctx.fillStyle = color;
+        ctx.fillText(text, hx, 53);
+        hx += tw + 8;
+        return hx;
+      };
+      chip(`HOSTILES ${String(left).padStart(2, "0")}`, left === 0 ? "#7dff9a" : "#ff6a6a");
+      chip(`SAVED ${this.rescued}/${need}`, "#ff9ac6");
+      chip(`CHAIN ${this.humanChain}x NEXT ${this.chainNext()}`, "#ffe56a");
       const sph = this.spheroids.filter((s) => s.alive).length;
       const enf = this.enforcerCount();
       const brn = this.brains.filter((b) => b.alive).length;
       if (sph || enf) {
-        ctx.fillStyle = "#ff7ae0";
-        ctx.fillText(`SPH ${sph}  ENF ${enf}`, 430, 54);
+        chip(`SPH ${sph} ENF ${enf}`, "#ff7ae0");
       }
       if (brn) {
-        ctx.fillStyle = "#c77bff";
-        ctx.fillText(`BRAINS ${String(brn).padStart(2, "0")}`, sph || enf ? 560 : 430, 54);
+        chip(`BRAINS ${String(brn).padStart(2, "0")}`, "#d0a0ff");
       }
       const qrk = this.quarks.filter((q) => q.alive).length;
       const tnk = this.tankCount();
       if (qrk || tnk) {
-        ctx.fillStyle = "#ffe56a";
-        ctx.fillText(`QRK ${qrk}  TNK ${tnk}`, brn ? 680 : sph || enf ? 560 : 430, 54);
+        chip(`QRK ${qrk} TNK ${tnk}`, "#ffb040");
       }
+      // prefs status, bottom-right of HUD so it never collides
+      ctx.textAlign = "right";
+      ctx.font = "11px 'Share Tech Mono', monospace";
+      ctx.fillStyle = "rgba(140,160,180,0.9)";
+      const flags = [];
+      if (Input.prefs) {
+        if (Input.prefs.autofire) flags.push("AUTO");
+        if (Input.prefs.difficulty === "easy") flags.push("EASY");
+        if (Input.prefs.muted) flags.push("MUTE");
+        if (Input.prefs.lowfx) flags.push("LOWFX");
+        if (Input.prefs.scanlines === false) flags.push("NOSCAN");
+        if (Input.stickyAim) flags.push("STICKY-AIM");
+      }
+      if (flags.length) ctx.fillText(flags.join(" · "), w - 28, 54);
 
-      if (Input.padCount) {
+      if (Input.padCount && w > 1100) {
         ctx.fillStyle = "#7ef6ff";
-        const px = qrk || tnk ? 720 : brn ? 680 : sph || enf ? 580 : 430;
+        ctx.font = "11px 'Share Tech Mono', monospace";
+        const px = w - 320;
         ctx.fillText(Input.dualPad ? "DUAL JOY" : "PAD", px, 54);
-        this.drawStickGizmo(ctx, px + 70, 44, Input.moveX, Input.moveY, "#7ef6ff");
-        this.drawStickGizmo(ctx, px + 108, 44, Input.shootX, Input.shootY, "#ff2bd6");
+        this.drawStickGizmo(ctx, px + 62, 46, Input.moveX, Input.moveY, "#7ef6ff");
+        this.drawStickGizmo(ctx, px + 96, 46, Input.shootX, Input.shootY, "#ff2bd6");
       }
     }
 
@@ -2792,6 +3152,14 @@
         ctx.font = "700 16px Orbitron, sans-serif";
         ctx.fillText("MAPPED SECTORS  1–" + MAX_WAVE + "  CLEARED", w / 2, h * 0.44);
         ctx.globalAlpha = 1;
+        if (this.isNewBest) {
+          ctx.fillStyle = "#ffe56a";
+          ctx.shadowColor = "#ffe56a";
+          ctx.shadowBlur = 16;
+          ctx.font = "900 24px Orbitron, sans-serif";
+          ctx.fillText("★ NEW BEST ★", w / 2, h * 0.485);
+          ctx.shadowBlur = 0;
+        }
         ctx.fillStyle = "rgba(220,230,255,0.88)";
         ctx.font = "15px 'Share Tech Mono', monospace";
         ctx.fillText("THE LAST HUMAN FAMILY LIVES.  THE NEXT WAVES ARE STILL BEING BUILT.", w / 2, h * 0.51);
@@ -2814,12 +3182,17 @@
         ctx.font = `900 ${Math.round(Math.min(60, w * 0.048))}px Orbitron, sans-serif`;
         ctx.fillText("GAME OVER", w / 2, h * 0.36);
         ctx.shadowBlur = 0;
+        if (this.isNewBest) {
+          ctx.fillStyle = "#ffe56a";
+          ctx.font = "900 22px Orbitron, sans-serif";
+          ctx.fillText("★ NEW BEST ★", w / 2, h * 0.45);
+        }
         ctx.fillStyle = "#fff";
         ctx.font = "700 22px Orbitron, sans-serif";
         ctx.fillText("SCORE  " + String(this.score).padStart(6, "0"), w / 2, h * 0.58);
         ctx.fillStyle = "#ffe56a";
         ctx.font = "16px 'Share Tech Mono', monospace";
-        ctx.fillText("THE ROBOTS STILL HOLD 2084", w / 2, h * 0.64);
+        ctx.fillText("WAVE " + this.waveNum + "  ·  FAMILY SAVED " + this.totalRescued, w / 2, h * 0.64);
         ctx.fillStyle = "#fff";
         ctx.font = "700 18px Orbitron, sans-serif";
         ctx.fillText("PRESS START TO PLAY AGAIN", w / 2, h * 0.72);
@@ -2829,15 +3202,32 @@
     renderPause(ctx) {
       const w = this.viewW;
       const h = this.viewH;
-      ctx.fillStyle = "rgba(4,6,12,0.55)";
+      ctx.fillStyle = "rgba(4,6,12,0.72)";
       ctx.fillRect(0, 0, w, h);
       ctx.textAlign = "center";
       ctx.fillStyle = "#7ef6ff";
+      ctx.shadowColor = "#18e8ff";
+      ctx.shadowBlur = 18;
       ctx.font = "900 48px Orbitron, sans-serif";
-      ctx.fillText("PAUSED", w / 2, h * 0.48);
+      ctx.fillText("PAUSED", w / 2, h * 0.32);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#fff";
+      ctx.font = "15px 'Share Tech Mono', monospace";
+      ctx.fillText("MOVE WASD / LEFT STICK      FIRE ARROWS / IJKL / RIGHT STICK", w / 2, h * 0.40);
+      ctx.fillText("CLICK TOGGLES STICKY MOUSE-AIM  ·  RIGHT-CLICK CLEARS  ·  F FULLSCREEN", w / 2, h * 0.44);
+      const p = Input.prefs || {};
+      ctx.fillStyle = "#ffe56a";
+      ctx.font = "14px 'Share Tech Mono', monospace";
+      ctx.fillText(`T AUTOFIRE [${p.autofire ? "ON" : "OFF"}]   E MODE [${(p.difficulty || "arcade").toUpperCase()}]   M ${p.muted ? "UNMUTE" : "MUTE"}   V LOW-FX [${p.lowfx ? "ON" : "OFF"}]   N SCANLINES [${p.scanlines === false ? "OFF" : "ON"}]`, w / 2, h * 0.52);
+      ctx.fillStyle = "#8a95a5";
+      ctx.font = "13px 'Share Tech Mono', monospace";
+      ctx.fillText("TOUCH HUMANS TO SAVE  ·  GREEN HULKS ARE IMMUNE  ·  ORANGE SHOTS ARE ENEMY", w / 2, h * 0.58);
       ctx.fillStyle = "#ccc";
       ctx.font = "16px 'Share Tech Mono', monospace";
-      ctx.fillText("START / SPACE / ESC TO RESUME", w / 2, h * 0.54);
+      const blink = 0.6 + 0.4 * Math.sin(this.time * 4);
+      ctx.globalAlpha = blink;
+      ctx.fillText("START / SPACE / ESC TO RESUME", w / 2, h * 0.66);
+      ctx.globalAlpha = 1;
     }
   }
 

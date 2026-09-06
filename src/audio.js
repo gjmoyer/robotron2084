@@ -24,10 +24,12 @@
     ready: false,
     buffers: {},
     voice: null,
+    laserVoice: null,
     bg: null,
     bgGain: null,
     bgIndex: -1,
     timers: [],
+    _lastTick: -1000,
 
     async load() {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -58,6 +60,16 @@
 
     resume() {
       if (this.ctx && this.ctx.state !== "running") this.ctx.resume();
+      this.applyMute();
+    },
+
+    applyMute() {
+      try {
+        const muted = !!(window.Input && window.Input.prefs && window.Input.prefs.muted);
+        if (this.master && this.ctx) {
+          this.master.gain.setTargetAtTime(muted ? 0 : 0.42, this.ctx.currentTime, 0.05);
+        }
+      } catch (_) {}
     },
 
     _stopVoice() {
@@ -72,6 +84,18 @@
       }
       for (const id of this.timers) clearTimeout(id);
       this.timers.length = 0;
+    },
+
+    _stopLaser() {
+      if (this.laserVoice) {
+        try {
+          this.laserVoice.stop();
+        } catch (_) {}
+        try {
+          this.laserVoice.disconnect();
+        } catch (_) {}
+        this.laserVoice = null;
+      }
     },
 
     _play(name, pan = 0, when = 0) {
@@ -90,12 +114,14 @@
     fire(name, pan = 0) {
       if (!this.ready) return;
       this._stopVoice();
+      this._stopLaser();
       this.voice = this._play(name, pan);
     },
 
     sequence(steps, pan = 0) {
       if (!this.ready) return;
       this._stopVoice();
+      this._stopLaser();
       this.voice = this._play(steps[0].name, pan);
       for (let i = 1; i < steps.length; i++) {
         const step = steps[i];
@@ -112,7 +138,19 @@
     },
 
     shot(pan = 0) {
-      this.fire("laser", pan);
+      // Own exclusive slot: retriggers like the original DAC so rapid fire
+      // stays crisp (one laser tail max) and never cuts rescue/death on voice.
+      if (!this.ready) return;
+      this._stopLaser();
+      this.laserVoice = this._play("laser", pan);
+    },
+
+    tick(pan = 0) {
+      // hatch wind-up warning — quiet layered blip, throttled so 5 spheroids can't stack
+      const now = performance.now();
+      if (now - this._lastTick < 90) return;
+      this._lastTick = now;
+      this._play("ui", pan);
     },
 
     gruntDie(pan = 0) {
